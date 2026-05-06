@@ -24,6 +24,7 @@ export default function RootLayout({
                 <a href="/final-selection" className="hover:text-indigo-200 transition-colors">Final Selection</a>
                 <a href="/print" className="hover:text-indigo-200 transition-colors">Print Sheets</a>
                 <a href="/rankings" className="hover:text-indigo-200 transition-colors">Rankings</a>
+                <a href="/admin/users" className="hover:text-white bg-indigo-800 px-3 py-1.5 rounded-md text-indigo-100 transition-colors border border-indigo-700">Admin Panel</a>
               </nav>
             </div>
           </header>
