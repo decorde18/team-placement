@@ -25,7 +25,8 @@ export const authOptions: NextAuthOptions = {
           return {
             id: process.env.BYPASS_USER_ID || "1",
             name: "Dev Admin (Bypass)",
-            email: credentials.email
+            email: credentials.email,
+            role: "admin"
           };
         }
 
@@ -79,6 +80,7 @@ export const authOptions: NextAuthOptions = {
     }
   },
   session: { strategy: "jwt" },
+  secret: process.env.NEXTAUTH_SECRET || process.env.JWT_SECRET,
   pages: {
     signIn: '/login',
   }

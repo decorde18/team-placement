@@ -37,6 +37,45 @@ export async function createUser(formData: FormData) {
   revalidatePath("/admin/users");
 }
 
+export async function updateUser(formData: FormData) {
+  const id = formData.get("id") as string;
+  const name = formData.get("name") as string;
+  const email = formData.get("email") as string;
+  const role = formData.get("role") as string;
+  const password = formData.get("password") as string;
+
+  if (!id || !name || !email || !role) {
+    throw new Error("Missing required fields");
+  }
+
+  if (password) {
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await db.query(
+      `UPDATE users SET name = ?, email = ?, role = ?, password_hash = ? WHERE id = ?`,
+      [name, email, role, hashedPassword, parseInt(id)]
+    );
+  } else {
+    await db.query(
+      `UPDATE users SET name = ?, email = ?, role = ? WHERE id = ?`,
+      [name, email, role, parseInt(id)]
+    );
+  }
+
+  revalidatePath("/admin/users");
+}
+
+export async function deleteUser(formData: FormData) {
+  const id = formData.get("id") as string;
+
+  if (!id) {
+    throw new Error("User ID is required");
+  }
+
+  await db.query(`DELETE FROM users WHERE id = ?`, [parseInt(id)]);
+  
+  revalidatePath("/admin/users");
+}
+
 // Seasons & Hierarchy
 export async function getSeasonsHierarchy() {
   // We want to fetch seasons, their age groups, and their teams

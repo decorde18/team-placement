@@ -1,6 +1,8 @@
-export default function Admin() {
+
+export default function Home() {
   return (
-    <div>
-    </div>
+    <main className="min-h-screen bg-gray-50">
+
+    </main>
   );
 }
