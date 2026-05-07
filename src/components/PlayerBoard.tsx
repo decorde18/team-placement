@@ -28,6 +28,7 @@ import {
   CoachNote,
   PlayerAttendance
 } from '@/lib/mockData';
+import { fetchAppData, syncAppData } from '@/app/actions/dbSync';
 import { TeamSection } from './TeamSection';
 import { PlayerCard } from './PlayerCard';
 import { LayoutGrid, List, Settings2, Users as UsersIcon, Plus, Calendar, Shield, Map, Layers } from 'lucide-react';
@@ -93,35 +94,60 @@ export function PlayerBoard() {
   const [cloneSessionId, setCloneSessionId] = useState<string>('none');
 
   useEffect(() => {
-    const data = loadAppData();
-    setAppData(data);
+    async function loadData() {
+      try {
+        if (process.env.NODE_ENV !== 'development') {
+          const dbData = await fetchAppData();
+          setAppData(dbData);
+          setDefaults(dbData);
+        } else {
+          const data = loadAppData();
+          setAppData(data);
+          setDefaults(data);
+        }
+      } catch (err) {
+        console.error("Failed to load app data:", err);
+        // Fallback to local
+        const data = loadAppData();
+        setAppData(data);
+        setDefaults(data);
+      }
+      setIsMounted(true);
+    }
     
-    // Set initial defaults
-    const initialSeason = data.seasons[0]?.id || '';
-    setActiveSeasonId(initialSeason);
-    
-    const initialEvents = data.events.filter(e => e.seasonId === initialSeason && e.type === 'tryout');
-    const initialEvent = initialEvents[0]?.id || '';
-    setActiveEventId(initialEvent);
+    function setDefaults(data: AppData) {
+      const initialSeason = data.seasons[0]?.id || '';
+      setActiveSeasonId(initialSeason);
+      
+      const initialEvents = data.events.filter(e => e.seasonId === initialSeason && e.type === 'tryout');
+      const initialEvent = initialEvents[0]?.id || '';
+      setActiveEventId(initialEvent);
 
-    const initialSessions = data.sessions.filter(s => s.eventId === initialEvent);
-    const initialSession = initialSessions[0]?.id || '';
-    setActiveSessionId(initialSession);
+      const initialSessions = data.sessions.filter(s => s.eventId === initialEvent);
+      const initialSession = initialSessions[0]?.id || '';
+      setActiveSessionId(initialSession);
 
-    const ev = initialEvents[0];
-    if (ev && ev.divisionIds.length > 0) {
-      setActiveDivisionId(ev.divisionIds[0]);
-    } else {
-      setActiveDivisionId(data.divisions[0]?.id || '');
+      const ev = initialEvents[0];
+      if (ev && ev.divisionIds.length > 0) {
+        setActiveDivisionId(ev.divisionIds[0]);
+      } else {
+        setActiveDivisionId(data.divisions[0]?.id || '');
+      }
+
+      setActiveUserId(data.users[0]?.id || '');
     }
 
-    setActiveUserId(data.users[0]?.id || '');
-    setIsMounted(true);
+    loadData();
   }, []);
 
   useEffect(() => {
     if (appData && isMounted) {
-      saveAppData(appData);
+      if (process.env.NODE_ENV !== 'development') {
+        // Sync to DB in background
+        syncAppData(appData).catch(err => console.error("Failed to sync to DB:", err));
+      } else {
+        saveAppData(appData);
+      }
     }
   }, [appData, isMounted]);
 
