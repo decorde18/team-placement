@@ -26,7 +26,8 @@ export const authOptions: NextAuthOptions = {
             id: process.env.BYPASS_USER_ID || "1",
             name: "Dev Admin (Bypass)",
             email: credentials.email,
-            role: "admin"
+            role: "system_admin",
+            club_id: 1
           };
         }
 
@@ -44,11 +45,11 @@ export const authOptions: NextAuthOptions = {
             if (user.password_hash) {
               const isValid = await bcrypt.compare(credentials.password, user.password_hash);
               if (isValid) {
-                return { id: user.id.toString(), name: user.name, email: user.email, role: user.role, assigned_team_id: user.assigned_team_id };
+                return { id: user.id.toString(), name: user.name, email: user.email, role: user.role, assigned_team_id: user.assigned_team_id, club_id: user.club_id };
               }
             } else if (credentials.password === user.password || credentials.password === "password") {
                // Fallback if testing before hashing is strictly enforced
-               return { id: user.id.toString(), name: user.name, email: user.email, role: user.role, assigned_team_id: user.assigned_team_id };
+               return { id: user.id.toString(), name: user.name, email: user.email, role: user.role, assigned_team_id: user.assigned_team_id, club_id: user.club_id };
             }
           }
           
@@ -67,14 +68,20 @@ export const authOptions: NextAuthOptions = {
         token.id = user.id;
         token.role = (user as any).role;
         token.assigned_team_id = (user as any).assigned_team_id;
+        token.club_id = (user as any).club_id;
       }
       return token;
     },
     async session({ session, token }) {
       if (session?.user) {
+        // Map old stale tokens for seamless migration
+        let role = token.role as string;
+        if (role === 'admin') role = 'system_admin';
+
         (session.user as any).id = token.id;
-        (session.user as any).role = token.role;
+        (session.user as any).role = role;
         (session.user as any).assigned_team_id = token.assigned_team_id;
+        (session.user as any).club_id = token.club_id || 1; // Default club_id for old tokens
       }
       return session;
     }

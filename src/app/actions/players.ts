@@ -2,6 +2,7 @@
 
 import db from "@/lib/db";
 import { revalidatePath } from "next/cache";
+import { getActiveClubId } from "./clubs";
 
 export interface UploadedPlayer {
   firstName: string;
@@ -19,6 +20,11 @@ export async function uploadPlayers(players: UploadedPlayer[]) {
     throw new Error("No players provided");
   }
 
+  const clubId = await getActiveClubId();
+  if (!clubId) {
+    throw new Error("No active club context found");
+  }
+
   // Get a connection from the pool to use transactions if needed
   const connection = await db.getConnection();
 
@@ -33,10 +39,10 @@ export async function uploadPlayers(players: UploadedPlayer[]) {
       
       let playerId: number;
 
-      // Basic deduplication check
+      // Basic deduplication check within the club
       const [existingPlayers]: any = await connection.query(
-        `SELECT id FROM players WHERE first_name = ? AND last_name = ? LIMIT 1`,
-        [player.firstName, player.lastName]
+        `SELECT id FROM players WHERE first_name = ? AND last_name = ? AND club_id = ? LIMIT 1`,
+        [player.firstName, player.lastName, clubId]
       );
 
       if (existingPlayers.length > 0) {
@@ -51,8 +57,8 @@ export async function uploadPlayers(players: UploadedPlayer[]) {
         }
       } else {
         const [result]: any = await connection.query(
-          `INSERT INTO players (first_name, last_name, date_of_birth, gender) VALUES (?, ?, ?, ?)`,
-          [player.firstName, player.lastName, player.dob || null, player.gender || null]
+          `INSERT INTO players (first_name, last_name, date_of_birth, gender, club_id) VALUES (?, ?, ?, ?, ?)`,
+          [player.firstName, player.lastName, player.dob || null, player.gender || null, clubId]
         );
         playerId = result.insertId;
       }

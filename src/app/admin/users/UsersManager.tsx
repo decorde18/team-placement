@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { createUser, updateUser, deleteUser } from "@/app/actions/admin";
 
-export default function UsersManager({ initialUsers }: { initialUsers: any[] }) {
+export default function UsersManager({ initialUsers, currentUserRole }: { initialUsers: any[], currentUserRole: string }) {
   const [users, setUsers] = useState(initialUsers);
   const [isPending, startTransition] = useTransition();
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -145,13 +145,13 @@ export default function UsersManager({ initialUsers }: { initialUsers: any[] }) 
                 </td>
                 <td className="px-6 py-4">
                   <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${
-                    user.role === 'admin' 
+                    user.role === 'system_admin' 
                       ? 'bg-emerald-100 text-emerald-800' 
-                      : user.role === 'coach'
-                      ? 'bg-blue-100 text-blue-800'
-                      : 'bg-slate-100 text-slate-800'
+                      : user.role === 'club_admin'
+                      ? 'bg-purple-100 text-purple-800'
+                      : 'bg-blue-100 text-blue-800'
                   }`}>
-                    {user.role}
+                    {user.role.replace('_', ' ')}
                   </span>
                 </td>
                 <td className="px-6 py-4 text-slate-500">
@@ -247,7 +247,9 @@ export default function UsersManager({ initialUsers }: { initialUsers: any[] }) 
                 >
                   <option value="coach">Coach</option>
                   <option value="club_admin">Club Admin</option>
-                  <option value="admin">System Admin</option>
+                  {currentUserRole === 'system_admin' && (
+                    <option value="system_admin">System Admin</option>
+                  )}
                 </select>
               </div>
 
