@@ -5,6 +5,13 @@ import { Plus, Edit2, Trash2 } from "lucide-react";
 import { createEvent, updateEvent, deleteEvent } from "@/app/actions/events";
 import { useRouter } from "next/navigation";
 
+// UI Components
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Modal } from "@/components/ui/modal";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select } from "@/components/ui/select";
+
 export default function EventsManager({ initialEvents, seasonsData }: { initialEvents: any[], seasonsData: { seasons: any[], divisions: any[] } }) {
   const [events, setEvents] = useState(initialEvents);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -84,65 +91,62 @@ export default function EventsManager({ initialEvents, seasonsData }: { initialE
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-      <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50/50">
-        <h2 className="text-lg font-semibold text-slate-800">Events List</h2>
-        <button
-          onClick={() => handleOpenModal()}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2"
-        >
+    <div className="bg-[var(--card)] rounded-xl shadow-sm border border-[var(--border)] overflow-hidden text-[var(--card-foreground)]">
+      <div className="p-6 border-b border-[var(--border)] flex justify-between items-center bg-[var(--muted)]/30">
+        <h2 className="text-lg font-semibold text-[var(--foreground)]">Events List</h2>
+        <Button onClick={() => handleOpenModal()} className="flex items-center gap-2">
           <Plus size={16} /> New Event
-        </button>
+        </Button>
       </div>
 
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse">
           <thead>
-            <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
-              <th className="px-6 py-4 font-semibold border-b border-slate-200">Name</th>
-              <th className="px-6 py-4 font-semibold border-b border-slate-200">Season</th>
-              <th className="px-6 py-4 font-semibold border-b border-slate-200">Type</th>
-              <th className="px-6 py-4 font-semibold border-b border-slate-200">Age Groups (Divisions)</th>
-              <th className="px-6 py-4 font-semibold border-b border-slate-200 text-right">Actions</th>
+            <tr className="bg-[var(--muted)]/50 text-[var(--muted-foreground)] text-xs uppercase tracking-wider">
+              <th className="px-6 py-4 font-semibold border-b border-[var(--border)]">Name</th>
+              <th className="px-6 py-4 font-semibold border-b border-[var(--border)]">Season</th>
+              <th className="px-6 py-4 font-semibold border-b border-[var(--border)]">Type</th>
+              <th className="px-6 py-4 font-semibold border-b border-[var(--border)]">Age Groups (Divisions)</th>
+              <th className="px-6 py-4 font-semibold border-b border-[var(--border)] text-right">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-200">
+          <tbody className="divide-y divide-[var(--border)]">
             {events.map((event) => (
-              <tr key={event.id} className="hover:bg-slate-50 transition-colors">
+              <tr key={event.id} className="hover:bg-[var(--muted)]/30 transition-colors">
                 <td className="px-6 py-4">
-                  <div className="font-semibold text-slate-900">{event.name}</div>
+                  <div className="font-semibold text-[var(--foreground)]">{event.name}</div>
                 </td>
                 <td className="px-6 py-4">
-                  <div className="text-sm text-slate-600">{event.season_name}</div>
+                  <div className="text-sm text-[var(--muted-foreground)]">{event.season_name}</div>
                 </td>
                 <td className="px-6 py-4">
-                  <span className={`px-2 py-1 text-xs rounded-md border ${event.event_type === 'tryout' ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-purple-50 text-purple-700 border-purple-100'}`}>
+                  <span className={`px-2 py-1 text-xs rounded-md border ${event.event_type === 'tryout' ? 'bg-blue-500/10 text-blue-500 border-blue-500/20' : 'bg-purple-500/10 text-purple-500 border-purple-500/20'}`}>
                     {event.event_type}
                   </span>
                 </td>
                 <td className="px-6 py-4">
                   <div className="flex flex-wrap gap-1 max-w-[300px]">
                     {event.divisions.map((div: any) => (
-                      <span key={div.id} className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md border border-slate-200">
+                      <span key={div.id} className="px-2 py-1 bg-[var(--muted)] text-[var(--muted-foreground)] text-xs rounded-md border border-[var(--border)]">
                         {div.name}
                       </span>
                     ))}
-                    {event.divisions.length === 0 && <span className="text-slate-400 text-sm">None</span>}
+                    {event.divisions.length === 0 && <span className="text-[var(--muted-foreground)] text-sm">None</span>}
                   </div>
                 </td>
                 <td className="px-6 py-4 text-right">
-                  <button onClick={() => handleOpenModal(event)} className="text-slate-400 hover:text-indigo-600 p-2 transition-colors">
+                  <Button variant="ghost" size="icon" onClick={() => handleOpenModal(event)} className="text-[var(--muted-foreground)] hover:text-[var(--primary)]">
                     <Edit2 size={18} />
-                  </button>
-                  <button onClick={() => handleDelete(event.id)} className="text-slate-400 hover:text-red-600 p-2 transition-colors ml-2">
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={() => handleDelete(event.id)} className="text-[var(--muted-foreground)] hover:text-[var(--destructive)]">
                     <Trash2 size={18} />
-                  </button>
+                  </Button>
                 </td>
               </tr>
             ))}
             {events.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
+                <td colSpan={5} className="px-6 py-8 text-center text-[var(--muted-foreground)]">
                   No events found. Create one to get started.
                 </td>
               </tr>
@@ -151,106 +155,93 @@ export default function EventsManager({ initialEvents, seasonsData }: { initialE
         </table>
       </div>
 
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-              <h2 className="text-xl font-bold text-slate-900">{editingEvent ? "Edit Event" : "Create Event"}</h2>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
-            </div>
-            
-            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6">
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Event Name</label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
-                    placeholder="e.g. Spring 2026 Tryouts"
-                  />
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1">Season</label>
-                    <select
-                      required
-                      value={formData.season_id}
-                      onChange={(e) => {
-                        setFormData({ ...formData, season_id: e.target.value, divisionIds: [] }); // Reset divisions when season changes
-                      }}
-                      className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all bg-white"
-                    >
-                      <option value="" disabled>Select a season</option>
-                      {seasonsData.seasons.map(s => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1">Event Type</label>
-                    <select
-                      value={formData.event_type}
-                      onChange={(e) => setFormData({ ...formData, event_type: e.target.value })}
-                      className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all bg-white"
-                    >
-                      <option value="tryout">Tryout</option>
-                      <option value="ranking">Ranking</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">Age Groups (Divisions) in this Event</label>
-                  {formData.season_id ? (
-                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 grid grid-cols-2 md:grid-cols-3 gap-3 max-h-60 overflow-y-auto">
-                      {availableDivisions.map(div => (
-                        <label key={div.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-slate-100 p-1.5 rounded">
-                          <input
-                            type="checkbox"
-                            checked={formData.divisionIds.includes(div.id)}
-                            onChange={() => toggleDivision(div.id)}
-                            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                          />
-                          <span>{div.name}</span>
-                        </label>
-                      ))}
-                      {availableDivisions.length === 0 && (
-                        <p className="text-sm text-slate-500 col-span-full">No age groups found for this season. Configure age groups in the Seasons manager.</p>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="text-sm text-slate-500 italic border border-slate-200 rounded-lg p-4 bg-slate-50">
-                      Please select a season first to see available age groups.
-                    </div>
-                  )}
-                </div>
-
-              </div>
-              
-              <div className="mt-8 flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-5 py-2.5 font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting || !formData.name || !formData.season_id}
-                  className="px-5 py-2.5 font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isSubmitting ? "Saving..." : editingEvent ? "Save Changes" : "Create Event"}
-                </button>
-              </div>
-            </form>
+      <Modal 
+        isOpen={isModalOpen} 
+        onClose={() => setIsModalOpen(false)} 
+        title={editingEvent ? "Edit Event" : "Create Event"}
+        className="max-w-2xl"
+      >
+        <form onSubmit={handleSubmit} className="space-y-6 mt-4">
+          <div>
+            <label className="block text-sm font-semibold text-[var(--foreground)] mb-1">Event Name</label>
+            <Input
+              type="text"
+              required
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              placeholder="e.g. Spring 2026 Tryouts"
+            />
           </div>
-        </div>
-      )}
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-semibold text-[var(--foreground)] mb-1">Season</label>
+              <Select
+                required
+                value={formData.season_id}
+                onChange={(e) => {
+                  setFormData({ ...formData, season_id: e.target.value, divisionIds: [] }); // Reset divisions when season changes
+                }}
+              >
+                <option value="" disabled>Select a season</option>
+                {seasonsData.seasons.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-[var(--foreground)] mb-1">Event Type</label>
+              <Select
+                value={formData.event_type}
+                onChange={(e) => setFormData({ ...formData, event_type: e.target.value })}
+              >
+                <option value="tryout">Tryout</option>
+                <option value="ranking">Ranking</option>
+              </Select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-[var(--foreground)] mb-2">Age Groups (Divisions) in this Event</label>
+            {formData.season_id ? (
+              <div className="bg-[var(--muted)]/50 border border-[var(--border)] rounded-lg p-4 grid grid-cols-2 md:grid-cols-3 gap-3 max-h-60 overflow-y-auto">
+                {availableDivisions.map(div => (
+                  <label key={div.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-[var(--accent)] p-1.5 rounded text-[var(--foreground)]">
+                    <Checkbox
+                      checked={formData.divisionIds.includes(div.id)}
+                      onChange={() => toggleDivision(div.id)}
+                    />
+                    <span>{div.name}</span>
+                  </label>
+                ))}
+                {availableDivisions.length === 0 && (
+                  <p className="text-sm text-[var(--muted-foreground)] col-span-full">No age groups found for this season. Configure age groups in the Seasons manager.</p>
+                )}
+              </div>
+            ) : (
+              <div className="text-sm text-[var(--muted-foreground)] italic border border-[var(--border)] rounded-lg p-4 bg-[var(--muted)]/50">
+                Please select a season first to see available age groups.
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-4 border-t border-[var(--border)] mt-8">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsModalOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={isSubmitting || !formData.name || !formData.season_id}
+            >
+              {isSubmitting ? "Saving..." : editingEvent ? "Save Changes" : "Create Event"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }
