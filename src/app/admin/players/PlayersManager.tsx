@@ -134,7 +134,7 @@ export default function PlayersManager({ divisions }: { divisions: any[] }) {
         <select 
           value={selectedDivision} 
           onChange={(e) => setSelectedDivision(e.target.value)}
-          className="w-full border border-slate-300 rounded-lg px-4 py-2.5 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow"
+          className="w-full border border-slate-300 rounded-lg px-4 py-2.5 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow text-slate-900 bg-white"
         >
           <option value="">Do not assign to a specific division</option>
           {divisions.map((div: any) => (

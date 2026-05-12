@@ -136,7 +136,7 @@ export default function TeamsManager({ seasons, joinedSeasonIds, divisions, team
                                 <div className="flex gap-2">
                                   <select 
                                     name="userId" 
-                                    className="text-sm border border-slate-300 rounded px-2 py-1 flex-1 bg-white"
+                                    className="text-sm border border-slate-300 rounded px-2 py-1 flex-1 text-slate-900 bg-white"
                                     defaultValue={assignedCoach ? assignedCoach.id : ""}
                                     required
                                   >
@@ -164,7 +164,7 @@ export default function TeamsManager({ seasons, joinedSeasonIds, divisions, team
                               name="name" 
                               required 
                               placeholder="e.g. Red Team" 
-                              className="w-full text-sm border border-slate-300 rounded px-3 py-2 mb-2 focus:ring-2 focus:ring-indigo-500 outline-none"
+                              className="w-full text-sm border border-slate-300 rounded px-3 py-2 mb-2 text-slate-900 bg-white focus:ring-2 focus:ring-indigo-500 outline-none"
                             />
                             <button type="submit" className="w-full bg-indigo-100 text-indigo-700 hover:bg-indigo-200 font-medium py-1.5 rounded transition-colors text-sm">
                               Create
@@ -189,16 +189,16 @@ export default function TeamsManager({ seasons, joinedSeasonIds, divisions, team
             <form onSubmit={handleCreateSeason} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Season Name</label>
-                <input type="text" required value={seasonForm.name} onChange={e => setSeasonForm({...seasonForm, name: e.target.value})} placeholder="e.g. Fall 2026" className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500" />
+                <input type="text" required value={seasonForm.name} onChange={e => setSeasonForm({...seasonForm, name: e.target.value})} placeholder="e.g. Fall 2026" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-900 bg-white outline-none focus:ring-2 focus:ring-indigo-500" />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Start Date</label>
-                  <input type="date" required value={seasonForm.startDate} onChange={e => setSeasonForm({...seasonForm, startDate: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500" />
+                  <input type="date" required value={seasonForm.startDate} onChange={e => setSeasonForm({...seasonForm, startDate: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-900 bg-white outline-none focus:ring-2 focus:ring-indigo-500" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">End Date</label>
-                  <input type="date" required value={seasonForm.endDate} onChange={e => setSeasonForm({...seasonForm, endDate: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500" />
+                  <input type="date" required value={seasonForm.endDate} onChange={e => setSeasonForm({...seasonForm, endDate: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-900 bg-white outline-none focus:ring-2 focus:ring-indigo-500" />
                 </div>
               </div>
               <div className="mt-6 flex justify-end gap-3 pt-4 border-t border-slate-100">
@@ -217,11 +217,11 @@ export default function TeamsManager({ seasons, joinedSeasonIds, divisions, team
             <form onSubmit={handleCreateDivision} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Age Group Name</label>
-                <input type="text" required value={divForm.ageGroupName} onChange={e => setDivForm({...divForm, ageGroupName: e.target.value})} placeholder="e.g. U10, U12" className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500" />
+                <input type="text" required value={divForm.ageGroupName} onChange={e => setDivForm({...divForm, ageGroupName: e.target.value})} placeholder="e.g. U10, U12" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-900 bg-white outline-none focus:ring-2 focus:ring-indigo-500" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Gender</label>
-                <select value={divForm.gender} onChange={e => setDivForm({...divForm, gender: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500">
+                <select value={divForm.gender} onChange={e => setDivForm({...divForm, gender: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-900 bg-white outline-none focus:ring-2 focus:ring-indigo-500">
                   <option value="M">Boys</option>
                   <option value="F">Girls</option>
                   <option value="Coed">Coed</option>
@@ -230,11 +230,11 @@ export default function TeamsManager({ seasons, joinedSeasonIds, divisions, team
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">DOB Start</label>
-                  <input type="date" required value={divForm.dobStart} onChange={e => setDivForm({...divForm, dobStart: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500" />
+                  <input type="date" required value={divForm.dobStart} onChange={e => setDivForm({...divForm, dobStart: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-900 bg-white outline-none focus:ring-2 focus:ring-indigo-500" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">DOB End</label>
-                  <input type="date" required value={divForm.dobEnd} onChange={e => setDivForm({...divForm, dobEnd: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500" />
+                  <input type="date" required value={divForm.dobEnd} onChange={e => setDivForm({...divForm, dobEnd: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-900 bg-white outline-none focus:ring-2 focus:ring-indigo-500" />
                 </div>
               </div>
               <p className="text-xs text-slate-500">Supports standard year (1/1-12/31) and soccer year (8/1-7/31) formats.</p>

@@ -32,6 +32,7 @@ export default async function AdminLayout({
           <span className="text-white mr-4">🔒 Admin Control Panel</span>
           <a href="/admin/users" className="mr-4 hover:text-white transition-colors">Users</a>
           <a href="/admin/teams" className="mr-4 hover:text-white transition-colors">Teams</a>
+          <a href="/admin/players" className="mr-4 hover:text-white transition-colors">Players</a>
           {role === 'system_admin' && (
             <a href="/admin/clubs" className="hover:text-white transition-colors">Clubs</a>
           )}

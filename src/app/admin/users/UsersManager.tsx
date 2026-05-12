@@ -204,7 +204,7 @@ export default function UsersManager({ initialUsers, currentUserRole }: { initia
                   value={formData.name}
                   onChange={handleFormChange}
                   required 
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
                   placeholder="e.g. Jane Doe"
                 />
               </div>
@@ -217,7 +217,7 @@ export default function UsersManager({ initialUsers, currentUserRole }: { initia
                   value={formData.email}
                   onChange={handleFormChange}
                   required 
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
                   placeholder="e.g. jane@example.com"
                 />
               </div>
@@ -232,7 +232,7 @@ export default function UsersManager({ initialUsers, currentUserRole }: { initia
                   value={formData.password}
                   onChange={handleFormChange}
                   required={!editingUser} 
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
                   placeholder={editingUser ? "••••••••" : "Create a password"}
                 />
               </div>
@@ -243,7 +243,7 @@ export default function UsersManager({ initialUsers, currentUserRole }: { initia
                   name="role" 
                   value={formData.role}
                   onChange={handleFormChange}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all bg-white"
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
                 >
                   <option value="coach">Coach</option>
                   <option value="club_admin">Club Admin</option>

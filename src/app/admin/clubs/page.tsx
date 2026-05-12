@@ -46,7 +46,7 @@ export default async function AdminClubsPage() {
                 name="name" 
                 placeholder="Club Name" 
                 required 
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-900 bg-white outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
             <button 
