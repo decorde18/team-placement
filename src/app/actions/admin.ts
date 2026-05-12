@@ -194,3 +194,24 @@ export async function assignCoach(formData: FormData) {
   revalidatePath("/admin/teams");
   revalidatePath("/admin/users");
 }
+
+export async function getDashboardStats() {
+  const clubId = await getActiveClubId();
+  if (!clubId) return { players: 0, teams: 0, events: 0, seasons: 0 };
+
+  const [[{ count: players }]]: any = await db.query(`SELECT COUNT(*) as count FROM players WHERE club_id = ?`, [clubId]);
+  const [[{ count: teams }]]: any = await db.query(`SELECT COUNT(*) as count FROM teams WHERE club_id = ?`, [clubId]);
+  
+  // Events are linked to seasons, which are linked to clubs via club_seasons
+  const [[{ count: events }]]: any = await db.query(`
+    SELECT COUNT(e.id) as count 
+    FROM events e
+    JOIN seasons s ON e.season_id = s.id
+    JOIN club_seasons cs ON s.id = cs.season_id
+    WHERE cs.club_id = ?
+  `, [clubId]);
+  
+  const [[{ count: seasons }]]: any = await db.query(`SELECT COUNT(*) as count FROM club_seasons WHERE club_id = ?`, [clubId]);
+
+  return { players, teams, events, seasons };
+}
