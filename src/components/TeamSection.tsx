@@ -3,7 +3,7 @@
 import React from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { Player, TeamConfig, PlayerStatus, SortOption, FilterOption, PlayerAttendance } from '@/types';
+import { Player, TeamConfig, FieldConfig, PlayerStatus, SortOption, FilterOption, PlayerAttendance } from '@/types';
 import { PlayerCard } from './PlayerCard';
 import { Users, Trash2, ArrowUpDown, Filter, RotateCcw, Star, Info } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';

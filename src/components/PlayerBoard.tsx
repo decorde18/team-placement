@@ -13,7 +13,7 @@ import {
   DragOverlay
 } from '@dnd-kit/core';
 import { arrayMove } from '@dnd-kit/sortable';
-import { PlayerBoardProps, AppData, AppEvent, EventPlayer, FieldConfig, PlayerStatus, SortOption, FilterOption, PlayerAttendance, Session, Player, CoachNote, getHydratedPlayers } from '@/types';
+import { AppData, AppEvent, EventPlayer, FieldConfig, PlayerStatus, SortOption, FilterOption, PlayerAttendance, Session, Player, CoachNote, getHydratedPlayers } from '@/types';
 import { DataSelectors } from './DataSelectors';
 import { fetchAppData, syncAppData } from '@/app/actions/dbSync';
 import { TeamSection } from './TeamSection';
@@ -365,6 +365,7 @@ export function PlayerBoard() {
           coachId: activeUserId,
           eventId: activeEventId,
           sessionId: activeSessionId,
+          playerId: playerId,
           text,
           timestamp: Date.now()
         };
