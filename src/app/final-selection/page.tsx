@@ -1,12 +1,13 @@
 "use client";
 
 import React, { useEffect, useState, useMemo } from 'react';
-import { AppData, User, Season, Division, GlobalPlayer, AppEvent, Session, FieldConfig, EventPlayer, CoachNote, Team, Player, PlayerStatus, getHydratedPlayers } from "@/types";
+import { AppData, Player, PlayerStatus, getHydratedPlayers } from '@/types';
+import { DataSelectors } from '@/components/DataSelectors';
 import { fetchAppData, syncAppData } from '@/app/actions/dbSync';
-import { Trophy, Users, ShieldAlert, Crosshair, Calendar, Layers, Settings2, Map, GripVertical, Info, CheckCircle2 } from 'lucide-react';
+import { Trophy, Users, ShieldAlert, Crosshair, Calendar, Layers, Settings2, Map, GripVertical, Info, CheckCircle2, ArrowUpDown } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor, useSensor, useSensors, rectIntersection } from '@dnd-kit/core';
+import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor, useSensor, useSensors, rectIntersection, useDroppable } from '@dnd-kit/core';
 import { arrayMove, SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
@@ -29,13 +30,15 @@ function SelectionPlayerCard({ player, statusColors, statusLabels, onStatusChang
     <div
       ref={setNodeRef}
       style={style}
+      {...attributes}
+      {...listeners}
       className={cn(
-        "bg-white p-2 mb-2 rounded-lg border shadow-sm flex items-center justify-between group transition-all",
+        "bg-white p-2 mb-2 rounded-lg border shadow-sm flex items-center justify-between group transition-all cursor-grab active:cursor-grabbing touch-none select-none",
         isDragging ? "opacity-50 border-indigo-500 shadow-xl z-50 ring-2 ring-indigo-500" : "hover:border-indigo-300"
       )}
     >
-      <div className="flex items-center gap-2 overflow-hidden flex-1">
-        <div {...attributes} {...listeners} className="text-gray-300 hover:text-indigo-400 cursor-grab active:cursor-grabbing p-1">
+      <div className="flex items-center gap-2 overflow-hidden flex-1 pointer-events-none">
+        <div className="text-gray-300 group-hover:text-indigo-400 p-1">
           <GripVertical size={14} />
         </div>
         <div className="bg-indigo-50 text-indigo-700 font-black px-1.5 py-0.5 rounded text-[10px] min-w-[28px] text-center">
@@ -46,12 +49,13 @@ function SelectionPlayerCard({ player, statusColors, statusLabels, onStatusChang
           <span className="text-[9px] text-gray-500 uppercase font-black tracking-tighter">{player.position}</span>
         </div>
       </div>
-      <div className="flex flex-col items-end gap-1">
+      <div className="flex flex-col items-end gap-1 pointer-events-auto">
         <select 
           value={player.status}
           onChange={(e) => {
             onStatusChange?.(player.id, e.target.value as PlayerStatus);
           }}
+          onPointerDown={(e) => e.stopPropagation()}
           className={cn(
             "text-[8px] font-black uppercase px-1.5 py-0.5 rounded outline-none cursor-pointer border-none",
             statusColors[player.status] || 'bg-gray-100 text-gray-500'
@@ -67,28 +71,107 @@ function SelectionPlayerCard({ player, statusColors, statusLabels, onStatusChang
 }
 
 // Droppable Team Column
-function TeamColumn({ team, players, statusColors, statusLabels, onStatusChange }: { team: any, players: Player[], statusColors: any, statusLabels: any, onStatusChange?: (id: string, s: PlayerStatus) => void }) {
-  const { setNodeRef } = useSortable({
+function TeamColumn({ 
+  team, 
+  players, 
+  statusColors, 
+  statusLabels, 
+  onStatusChange,
+  onSortChange,
+  onFilterChange,
+  onRatingFilterChange
+}: { 
+  team: any, 
+  players: Player[], 
+  statusColors: any, 
+  statusLabels: any, 
+  onStatusChange?: (id: string, s: PlayerStatus) => void,
+  onSortChange?: (id: string, sort: any) => void,
+  onFilterChange?: (id: string, filter: any) => void,
+  onRatingFilterChange?: (id: string, rating: string) => void
+}) {
+  const { setNodeRef, isOver } = useDroppable({
     id: team.id,
+  });
+
+  let columnPlayers = [...players];
+  if (team.filterBy && team.filterBy !== 'all') {
+    columnPlayers = columnPlayers.filter(p => p.position === team.filterBy);
+  }
+  if (team.ratingFilter && team.ratingFilter !== 'all') {
+    const minRating = parseFloat(team.ratingFilter);
+    columnPlayers = columnPlayers.filter(p => p.rating >= minRating);
+  }
+
+  columnPlayers.sort((a, b) => {
+    if (team.sortBy && team.sortBy !== 'manual' && team.sortBy !== 'manual_rank') {
+      const direction = team.sortDirection || 'asc';
+      if (team.sortBy === 'name') {
+        const cmp = a.name.localeCompare(b.name);
+        if (cmp !== 0) return direction === 'asc' ? cmp : -cmp;
+      } else if (team.sortBy === 'rating') {
+        const diff = a.rating - b.rating;
+        if (diff !== 0) return direction === 'asc' ? diff : -diff;
+      } else if (team.sortBy === 'position') {
+        const cmp = a.position.localeCompare(b.position);
+        if (cmp !== 0) return direction === 'asc' ? cmp : -cmp;
+      }
+    }
+    return a.name.localeCompare(b.name);
   });
 
   return (
     <div 
       ref={setNodeRef}
-      className="flex-shrink-0 w-[280px] bg-gray-50/50 rounded-2xl border border-gray-100 flex flex-col h-full overflow-hidden"
+      className={cn("flex-shrink-0 w-[280px] bg-gray-50/50 rounded-2xl border flex flex-col h-full overflow-hidden transition-colors", isOver ? "border-indigo-400 ring-2 ring-indigo-200" : "border-gray-100")}
     >
-      <div className="bg-white border-b border-gray-100 p-3 flex items-center justify-between">
-        <h3 className="font-black text-gray-900 text-xs uppercase tracking-widest flex items-center gap-2">
-          <Trophy size={14} className="text-indigo-500" />
-          {team.name}
-        </h3>
-        <span className="bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded-full text-[10px]">
-          {players.length}
-        </span>
+      <div className="bg-white border-b border-gray-100 p-3 flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <h3 className="font-black text-gray-900 text-xs uppercase tracking-widest flex items-center gap-2">
+            <Trophy size={14} className="text-indigo-500" />
+            {team.name}
+          </h3>
+          <span className="bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded-full text-[10px]">
+            {players.length}
+          </span>
+        </div>
+        
+        <div className="flex flex-wrap items-center gap-1 mt-1">
+          <div className="flex items-center gap-1 bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5 shadow-sm">
+            <button onClick={() => onSortChange?.(team.id, team.sortBy || 'name')} className="hover:text-indigo-600 transition-colors">
+              <ArrowUpDown size={10} className={team.sortDirection === 'desc' ? "rotate-180" : ""} />
+            </button>
+            <select value={team.sortBy || 'name'} onChange={(e) => onSortChange?.(team.id, e.target.value)} className="text-[9px] font-bold bg-transparent outline-none text-gray-700 cursor-pointer">
+              <option value="name">Name</option>
+              <option value="rating">Rating</option>
+              <option value="position">Position</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-1 bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5 shadow-sm">
+            <span className="text-[8px] font-black text-gray-400">RAT</span>
+            <select value={team.ratingFilter || 'all'} onChange={(e) => onRatingFilterChange?.(team.id, e.target.value)} className="text-[9px] font-bold bg-transparent outline-none text-gray-700 cursor-pointer">
+              <option value="all">All</option>
+              {[...new Set(players.map(p => Math.floor(p.rating)))].sort((a,b) => b-a).map(r => (
+                <option key={r} value={String(r)}>{r}+</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-1 bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5 shadow-sm">
+            <span className="text-[8px] font-black text-gray-400">POS</span>
+            <select value={team.filterBy || 'all'} onChange={(e) => onFilterChange?.(team.id, e.target.value)} className="text-[9px] font-bold bg-transparent outline-none text-gray-700 cursor-pointer">
+              <option value="all">All</option>
+              <option value="Forward">FWD</option>
+              <option value="Midfielder">MID</option>
+              <option value="Defender">DEF</option>
+              <option value="Goalkeeper">GK</option>
+            </select>
+          </div>
+        </div>
       </div>
+
       <div className="p-2 flex-1 overflow-y-auto custom-scrollbar">
-        <SortableContext items={players.map(p => p.id)} strategy={verticalListSortingStrategy}>
-          {players.map(player => (
+        <SortableContext items={columnPlayers.map(p => p.id)} strategy={verticalListSortingStrategy}>
+          {columnPlayers.map(player => (
             <SelectionPlayerCard 
               key={player.id} 
               player={player} 
@@ -97,13 +180,22 @@ function TeamColumn({ team, players, statusColors, statusLabels, onStatusChange 
               onStatusChange={onStatusChange}
             />
           ))}
-          {players.length === 0 && (
+          {columnPlayers.length === 0 && (
             <div className="h-24 border-2 border-dashed border-gray-200 rounded-xl flex items-center justify-center text-[10px] text-gray-400 font-bold uppercase tracking-widest text-center px-4">
               Drag Players Here to Assign
             </div>
           )}
         </SortableContext>
       </div>
+    </div>
+  );
+}
+
+function PoolDroppable({ children }: { children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: 'unassigned-pool' });
+  return (
+    <div ref={setNodeRef} className={cn("flex-1 overflow-y-auto p-4 custom-scrollbar transition-colors", isOver ? "bg-indigo-50/30 ring-inset ring-2 ring-indigo-200 rounded-b-lg" : "")}>
+      {children}
     </div>
   );
 }
@@ -117,6 +209,11 @@ export default function FinalSelectionPage() {
   const [isMounted, setIsMounted] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [activePlayer, setActivePlayer] = useState<Player | null>(null);
+
+  const [poolSortBy, setPoolSortBy] = useState<string>('rank');
+  const [poolSortDirection, setPoolSortDirection] = useState<'asc'|'desc'>('asc');
+  const [poolFilterBy, setPoolFilterBy] = useState<string>('all');
+  const [poolRatingFilter, setPoolRatingFilter] = useState<string>('all');
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -186,7 +283,7 @@ export default function FinalSelectionPage() {
   useEffect(() => {
     if (!isMounted || !appData) return;
     const fingerprint = calculateFingerprint(appData);
-    if (fingerprint === lastSyncedDataRef.current) return;
+    if (fingerprint === lastSyncedDataRef.current || activePlayer !== null) return;
 
     const timer = setTimeout(async () => {
       try {
@@ -198,7 +295,7 @@ export default function FinalSelectionPage() {
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [appData, isMounted]);
+  }, [appData, isMounted, activePlayer]);
 
   // Status mapping
   const statusColors: Record<PlayerStatus, string> = {
@@ -231,11 +328,16 @@ export default function FinalSelectionPage() {
     const targetId = String(over.id);
 
     // If targetId is a team ID or a player within a team
-    let teamId = targetId;
-    const isTeam = activeDivisionTeams.some(t => t.id === targetId);
-    if (!isTeam) {
-      const targetPlayer = finalPlayers.find(p => p.id === targetId);
-      if (targetPlayer) teamId = targetPlayer.teamId;
+    let teamId: string | undefined = targetId;
+    
+    if (targetId === 'unassigned-pool') {
+      teamId = 'unassigned';
+    } else {
+      const isTeam = activeDivisionTeams.some(t => t.id === targetId);
+      if (!isTeam) {
+        const targetPlayer = finalPlayers.find(p => p.id === targetId);
+        if (targetPlayer) teamId = targetPlayer.teamId;
+      }
     }
 
     setAppData(prev => {
@@ -261,6 +363,28 @@ export default function FinalSelectionPage() {
     });
   };
 
+  const handleSortChange = (id: string, sort: any) => {
+    setAppData(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        teams: prev.teams.map(t => t.id === id ? {
+          ...t,
+          sortBy: sort,
+          sortDirection: t.sortBy === sort && t.sortDirection === 'asc' ? 'desc' : 'asc'
+        } as any : t)
+      };
+    });
+  };
+
+  const handleFilterChange = (id: string, filter: any) => {
+    setAppData(prev => prev ? { ...prev, teams: prev.teams.map(t => t.id === id ? { ...t, filterBy: filter } as any : t) } : null);
+  };
+
+  const handleRatingFilterChange = (id: string, rating: string) => {
+    setAppData(prev => prev ? { ...prev, teams: prev.teams.map(t => t.id === id ? { ...t, ratingFilter: rating } as any : t) } : null);
+  };
+
   if (!isMounted || !appData) return <div className="p-12 text-center font-black text-gray-300">INITIALIZING BOARD...</div>;
   if (!activeEvent || !activeSession) return <div className="p-12 text-center font-black text-gray-300 uppercase tracking-widest">Select an Event to Begin Selection</div>;
 
@@ -275,18 +399,17 @@ export default function FinalSelectionPage() {
           </div>
           
           <div className="flex items-center gap-3 bg-gray-50 p-1 rounded-xl border border-gray-100">
-            <select value={activeSeasonId} onChange={(e) => setActiveSeasonId(e.target.value)} className="text-[10px] font-black uppercase bg-white px-2 py-1.5 rounded-lg outline-none border-none shadow-sm cursor-pointer">
-              {appData.seasons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-            <select value={activeEventId} onChange={(e) => setActiveEventId(e.target.value)} className="text-[10px] font-black uppercase bg-white px-2 py-1.5 rounded-lg outline-none border-none shadow-sm cursor-pointer max-w-[120px]">
-              {seasonEvents.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-            </select>
-            <select value={activeSessionId} onChange={(e) => setActiveSessionId(e.target.value)} className="text-[10px] font-black uppercase bg-indigo-600 text-white px-2 py-1.5 rounded-lg outline-none border-none shadow-sm cursor-pointer max-w-[120px]">
-              {eventSessions.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-            <select value={activeDivisionId} onChange={(e) => setActiveDivisionId(e.target.value)} className="text-[10px] font-black uppercase bg-white px-2 py-1.5 rounded-lg outline-none border-none shadow-sm cursor-pointer">
-              {availableDivisions.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
+            <DataSelectors 
+              appData={appData}
+              activeSeasonId={activeSeasonId}
+              setActiveSeasonId={setActiveSeasonId}
+              activeEventId={activeEventId}
+              setActiveEventId={setActiveEventId}
+              activeSessionId={activeSessionId}
+              setActiveSessionId={setActiveSessionId}
+              activeDivisionId={activeDivisionId}
+              setActiveDivisionId={setActiveDivisionId}
+            />
           </div>
         </div>
 
@@ -308,13 +431,79 @@ export default function FinalSelectionPage() {
         <div className="flex-1 flex overflow-hidden">
           {/* LEFT: Scouting Pool (Grouped by Field) */}
           <div className="w-[320px] bg-white border-r border-gray-200 flex flex-col shadow-lg z-10">
-            <div className="p-4 bg-gray-50 border-b border-gray-200">
-              <h2 className="text-[10px] font-black text-indigo-500 uppercase tracking-[0.2em] mb-1">Tryout Scouting Pool</h2>
-              <p className="text-xs font-bold text-gray-700">Grouped by Last Session Field</p>
+            <div className="p-4 bg-gray-50 border-b border-gray-200 flex flex-col gap-3">
+              <div>
+                <h2 className="text-[10px] font-black text-indigo-500 uppercase tracking-[0.2em] mb-1">Tryout Scouting Pool</h2>
+                <p className="text-xs font-bold text-gray-700">Grouped by Last Session Field</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-1">
+                <div className="flex items-center gap-1 bg-white border border-gray-200 rounded px-1.5 py-0.5 shadow-sm">
+                  <button onClick={() => setPoolSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')} className="hover:text-indigo-600 transition-colors">
+                    <ArrowUpDown size={10} className={poolSortDirection === 'desc' ? "rotate-180" : ""} />
+                  </button>
+                  <select value={poolSortBy} onChange={(e) => setPoolSortBy(e.target.value)} className="text-[9px] font-bold bg-transparent outline-none text-gray-700 cursor-pointer">
+                    <option value="rank">Rank</option>
+                    <option value="name">Name</option>
+                    <option value="rating">Rating</option>
+                    <option value="position">Position</option>
+                  </select>
+                </div>
+                <div className="flex items-center gap-1 bg-white border border-gray-200 rounded px-1.5 py-0.5 shadow-sm">
+                  <span className="text-[8px] font-black text-gray-400">RAT</span>
+                  <select value={poolRatingFilter} onChange={(e) => setPoolRatingFilter(e.target.value)} className="text-[9px] font-bold bg-transparent outline-none text-gray-700 cursor-pointer">
+                    <option value="all">All</option>
+                    {[...new Set(finalPlayers.filter(p => !p.teamId || p.teamId === 'unassigned').map(p => Math.floor(p.rating)))].sort((a,b) => b-a).map(r => (
+                      <option key={r} value={String(r)}>{r}+</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-center gap-1 bg-white border border-gray-200 rounded px-1.5 py-0.5 shadow-sm">
+                  <span className="text-[8px] font-black text-gray-400">POS</span>
+                  <select value={poolFilterBy} onChange={(e) => setPoolFilterBy(e.target.value)} className="text-[9px] font-bold bg-transparent outline-none text-gray-700 cursor-pointer">
+                    <option value="all">All</option>
+                    <option value="Forward">FWD</option>
+                    <option value="Midfielder">MID</option>
+                    <option value="Defender">DEF</option>
+                    <option value="Goalkeeper">GK</option>
+                  </select>
+                </div>
+              </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-              {activeSession.fields.map(field => {
-                const fieldPlayers = finalPlayers.filter(p => p.fieldId === field.id && (!p.teamId || p.teamId === 'unassigned'));
+            <PoolDroppable>
+              {[...activeSession.fields].sort((a, b) => {
+                const aIsUnassigned = a.id.includes('unassigned');
+                const bIsUnassigned = b.id.includes('unassigned');
+                if (aIsUnassigned && !bIsUnassigned) return 1;
+                if (!aIsUnassigned && bIsUnassigned) return -1;
+                return 0;
+              }).map(field => {
+                let fieldPlayers = finalPlayers.filter(p => p.fieldId === field.id && (!p.teamId || p.teamId === 'unassigned'));
+                
+                if (poolFilterBy !== 'all') {
+                  fieldPlayers = fieldPlayers.filter(p => p.position === poolFilterBy);
+                }
+                if (poolRatingFilter !== 'all') {
+                  const minRat = parseFloat(poolRatingFilter);
+                  fieldPlayers = fieldPlayers.filter(p => p.rating >= minRat);
+                }
+                
+                fieldPlayers.sort((a, b) => {
+                  if (poolSortBy === 'name') {
+                    const cmp = a.name.localeCompare(b.name);
+                    if (cmp !== 0) return poolSortDirection === 'asc' ? cmp : -cmp;
+                  } else if (poolSortBy === 'rating') {
+                    const diff = a.rating - b.rating;
+                    if (diff !== 0) return poolSortDirection === 'asc' ? diff : -diff;
+                  } else if (poolSortBy === 'position') {
+                    const cmp = a.position.localeCompare(b.position);
+                    if (cmp !== 0) return poolSortDirection === 'asc' ? cmp : -cmp;
+                  } else if (poolSortBy === 'rank') {
+                    const diff = (a.rank || 99) - (b.rank || 99);
+                    if (diff !== 0) return poolSortDirection === 'asc' ? diff : -diff;
+                  }
+                  return a.name.localeCompare(b.name);
+                });
+
                 if (fieldPlayers.length === 0 && field.id.includes('unassigned')) return null;
                 
                 return (
@@ -324,7 +513,7 @@ export default function FinalSelectionPage() {
                       <span className="bg-gray-100 text-gray-500 px-1.5 rounded">{fieldPlayers.length}</span>
                     </h3>
                     <SortableContext items={fieldPlayers.map(p => p.id)} strategy={verticalListSortingStrategy}>
-                      {fieldPlayers.sort((a,b) => (a.rank || 99) - (b.rank || 99)).map(player => (
+                      {fieldPlayers.map(player => (
                         <SelectionPlayerCard 
                           key={player.id} 
                           player={player} 
@@ -337,7 +526,7 @@ export default function FinalSelectionPage() {
                   </div>
                 );
               })}
-            </div>
+            </PoolDroppable>
           </div>
 
           {/* RIGHT: Seasonal Team Kanban */}
@@ -350,6 +539,9 @@ export default function FinalSelectionPage() {
                 statusColors={statusColors} 
                 statusLabels={statusLabels} 
                 onStatusChange={handleStatusChange}
+                onSortChange={handleSortChange}
+                onFilterChange={handleFilterChange}
+                onRatingFilterChange={handleRatingFilterChange}
               />
             ))}
           </div>

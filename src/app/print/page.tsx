@@ -41,27 +41,27 @@ export default function PrintPage() {
         </button>
       </div>
 
-      {session.teams.map(team => {
-        // Teams have divisionId now
-        const division = appData.divisions.find(d => d.id === team.divisionId);
+      {session.fields.map(field => {
+        // Fields have divisionId now
+        const division = appData.divisions.find(d => d.id === field.divisionId);
         
         // Hydrate players for this specific division and session
-        const divPlayers = appData.globalPlayers.filter(gp => gp.divisionId === team.divisionId);
+        const divPlayers = appData.globalPlayers.filter(gp => gp.divisionId === field.divisionId);
         const hydratedPlayers = getHydratedPlayers(divPlayers, session.sessionPlayers);
         
-        const teamPlayers = hydratedPlayers.filter(p => p.teamId === team.id && p.status !== 'declined');
-        if (teamPlayers.length === 0) return null;
+        const fieldPlayers = hydratedPlayers.filter(p => p.fieldId === field.id && p.status !== 'declined');
+        if (fieldPlayers.length === 0) return null;
 
         // We generate 3 tables side-by-side: Sorted by Number, Sorted by Name, Sorted by Rating
-        const byNumber = [...teamPlayers].sort((a, b) => Number(a.tryoutNumber) - Number(b.tryoutNumber));
-        const byName = [...teamPlayers].sort((a, b) => a.name.localeCompare(b.name));
-        const byRating = [...teamPlayers].sort((a, b) => b.rating - a.rating);
+        const byNumber = [...fieldPlayers].sort((a, b) => Number(a.tryoutNumber) - Number(b.tryoutNumber));
+        const byName = [...fieldPlayers].sort((a, b) => a.name.localeCompare(b.name));
+        const byRating = [...fieldPlayers].sort((a, b) => b.rating - a.rating);
 
         return (
-          <div key={team.id} className="mb-12 page-break-after-always">
+          <div key={field.id} className="mb-12 page-break-after-always">
             <div className="border-b-2 border-black pb-2 mb-6">
-              <h2 className="text-3xl font-black">{team.name}</h2>
-              <p className="text-gray-600 font-bold">{division?.name} - {event.name} ({session.name}) ({teamPlayers.length} Players)</p>
+              <h2 className="text-3xl font-black">{field.name}</h2>
+              <p className="text-gray-600 font-bold">{division?.name} - {event.name} ({session.name}) ({fieldPlayers.length} Players)</p>
             </div>
 
             <div className="grid grid-cols-3 gap-8">

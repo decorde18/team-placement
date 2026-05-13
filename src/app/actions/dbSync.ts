@@ -1,7 +1,7 @@
 "use server";
 
 import db from "@/lib/db";
-import { AppData, User, Season, Division, GlobalPlayer, AppEvent, Session, FieldConfig, EventPlayer, CoachNote, Team } from "@/types";
+import { AppData, User, Season, Division, GlobalPlayer, AppEvent, Session, FieldConfig, EventPlayer, CoachNote, Team, TeamConfig } from "@/types";
 
 import { getActiveClubId } from "./clubs";
 import { syncEventPlayers } from "./events";
@@ -194,7 +194,7 @@ export async function fetchAppData(): Promise<AppData> {
       globalPlayers,
       events,
       sessions,
-      teams: teamsList.map(t => ({ id: t.id, divisionId: t.divisionId, name: t.name }))
+      teams: teamsList
     };
   } finally {
     connection.release();

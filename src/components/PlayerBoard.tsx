@@ -13,20 +13,8 @@ import {
   DragOverlay
 } from '@dnd-kit/core';
 import { arrayMove } from '@dnd-kit/sortable';
-import { 
-  AppData, 
-  AppEvent,
-  Session, 
-  EventPlayer,
-  Player, 
-  PlayerStatus, 
-  FieldConfig, 
-  SortOption, 
-  FilterOption,
-  CoachNote,
-  PlayerAttendance,
-  getHydratedPlayers
-} from '@/types';
+import { PlayerBoardProps, AppData, AppEvent, EventPlayer, FieldConfig, PlayerStatus, SortOption, FilterOption, PlayerAttendance, Session, Player, CoachNote, getHydratedPlayers } from '@/types';
+import { DataSelectors } from './DataSelectors';
 import { fetchAppData, syncAppData } from '@/app/actions/dbSync';
 import { TeamSection } from './TeamSection';
 import { PlayerCard } from './PlayerCard';
@@ -71,7 +59,7 @@ const getProcessedPlayers = (players: Player[], field: FieldConfig) => {
       } else if (field.sortBy === 'position') {
         const cmp = a.position.localeCompare(b.position);
         if (cmp !== 0) return direction === 'asc' ? cmp : -cmp;
-      } else if (field.sortBy === 'rank' || field.sortBy === 'manual') {
+      } else if (field.sortBy === 'manual_rank') {
         const diff = (a.rank || 0) - (b.rank || 0);
         if (diff !== 0) return direction === 'asc' ? diff : -diff;
       }
@@ -206,7 +194,7 @@ export function PlayerBoard() {
     }, 1500);
 
     return () => clearTimeout(timer);
-  }, [appData, isMounted]);
+  }, [appData, isMounted, isDragging]);
 
   const activeUser = useMemo(() => appData?.users.find(u => u.id === activeUserId), [appData, activeUserId]);
   const seasonEvents = useMemo(() => appData?.events.filter(e => e.seasonId === activeSeasonId) || [], [appData, activeSeasonId]);
@@ -298,7 +286,10 @@ export function PlayerBoard() {
       updateFields(prev => prev.map(f => String(f.id) === String(overField.id) ? { ...f, filterBy: 'all' } : f));
     }
 
+    let rankChanged = false;
+
     if (activePlayer.fieldId !== overFieldId) {
+      rankChanged = true;
       updateSessionPlayers((prev) => {
         const newPlayers = [...prev];
         const activeIdx = newPlayers.findIndex(p => p.id === activeId);
@@ -328,6 +319,7 @@ export function PlayerBoard() {
         return newPlayers;
       });
     } else if (activeId !== overId) {
+      rankChanged = true;
       // Reordering within the same field
       updateSessionPlayers((prev) => {
         const newPlayers = [...prev];
@@ -344,6 +336,10 @@ export function PlayerBoard() {
         }
         return newPlayers;
       });
+    }
+
+    if (rankChanged && overField.sortBy !== 'manual_rank') {
+      updateFields(prev => prev.map(f => String(f.id) === overFieldId ? { ...f, sortBy: 'manual_rank', sortDirection: 'asc' } : f));
     }
   };
 
@@ -502,34 +498,19 @@ export function PlayerBoard() {
   return (
     <div className="max-w-[1600px] mx-auto p-6 min-h-screen bg-gray-50/30">
       <div className="mb-4 flex flex-col md:flex-row items-center justify-between bg-white p-3 rounded-xl shadow-sm border border-gray-100 gap-4">
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-2"><Shield className="text-gray-400" size={18} />
-            <select value={activeUserId} onChange={(e) => setActiveUserId(e.target.value)} className="text-sm font-bold text-gray-700 bg-gray-100 outline-none border border-transparent focus:border-indigo-300 hover:bg-gray-200 px-3 py-1.5 rounded-lg cursor-pointer">
-              {appData.users.map(u => (<option key={u.id} value={u.id}>As: {u.name}</option>))}
-            </select>
-          </div>
-          <div className="w-px h-6 bg-gray-200 hidden sm:block"></div>
-          <div className="flex items-center gap-2"><Calendar className="text-gray-400" size={18} />
-            <select value={activeSeasonId} onChange={(e) => setActiveSeasonId(e.target.value)} className="text-sm font-bold text-gray-700 bg-gray-100 outline-none border border-transparent focus:border-indigo-300 hover:bg-gray-200 px-3 py-1.5 rounded-lg cursor-pointer">
-              {appData.seasons.map(s => (<option key={s.id} value={s.id}>{s.name}</option>))}
-            </select>
-          </div>
-          <div className="flex items-center gap-2"><Layers className="text-gray-400" size={18} />
-            <select value={activeEventId} onChange={(e) => setActiveEventId(e.target.value)} className="text-sm font-bold text-gray-700 bg-gray-100 outline-none border border-transparent focus:border-indigo-300 hover:bg-gray-200 px-3 py-1.5 rounded-lg cursor-pointer max-w-[150px] truncate">
-              {seasonEvents.map(e => (<option key={e.id} value={e.id}>{e.name}</option>))}
-            </select>
-          </div>
-          <div className="flex items-center gap-2 bg-indigo-50 px-3 py-1.5 rounded-lg"><Settings2 className="text-indigo-600" size={18} />
-            <select value={activeSessionId} onChange={(e) => setActiveSessionId(e.target.value)} className="text-sm font-bold text-indigo-900 bg-transparent outline-none cursor-pointer max-w-[150px] truncate">
-              {eventSessions.map(s => (<option key={s.id} value={s.id}>{s.name}</option>))}
-            </select>
-          </div>
-          <div className="flex items-center gap-2"><Map className="text-gray-400" size={18} />
-            <select value={activeDivisionId} onChange={(e) => setActiveDivisionId(e.target.value)} className="text-sm font-bold text-gray-700 bg-gray-100 outline-none border border-transparent focus:border-indigo-300 hover:bg-gray-200 px-3 py-1.5 rounded-lg cursor-pointer">
-              {availableDivisions.map(d => (<option key={d.id} value={d.id}>{d.name}</option>))}
-            </select>
-          </div>
-        </div>
+        <DataSelectors 
+          appData={appData}
+          activeUserId={activeUserId}
+          setActiveUserId={setActiveUserId}
+          activeSeasonId={activeSeasonId}
+          setActiveSeasonId={setActiveSeasonId}
+          activeEventId={activeEventId}
+          setActiveEventId={setActiveEventId}
+          activeSessionId={activeSessionId}
+          setActiveSessionId={setActiveSessionId}
+          activeDivisionId={activeDivisionId}
+          setActiveDivisionId={setActiveDivisionId}
+        />
         <div className="flex items-center gap-2">
           {activeEvent && (
             <button onClick={() => setIsCreateSessionModalOpen(true)} className="text-sm font-semibold text-indigo-600 hover:text-indigo-700 border border-indigo-200 hover:bg-indigo-50 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap">
@@ -695,7 +676,7 @@ export function PlayerBoard() {
                 </div>
               </div>
             </div>
-            <DragOverlay>{activePlayer ? <PlayerCard player={activePlayer} isTryoutMode={true} viewMode="kanban" /> : null}</DragOverlay>
+            <DragOverlay>{activePlayer ? <PlayerCard player={activePlayer} isTryoutMode={true} viewMode={viewMode} isCompact={true} /> : null}</DragOverlay>
           </DndContext>
         </>
       )}

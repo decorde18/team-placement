@@ -72,8 +72,10 @@ export function PlayerCard({
       <div
         ref={setNodeRef}
         style={style}
+        {...attributes}
+        {...listeners}
         className={cn(
-          "group flex items-center justify-between p-2 mb-1.5 rounded-lg shadow-sm border transition-all select-none touch-none relative",
+          "group flex items-center justify-between p-2 mb-1.5 rounded-lg shadow-sm border transition-all select-none touch-none relative cursor-grab active:cursor-grabbing",
           getCardStyles(),
           isDragging ? "opacity-20 shadow-2xl scale-[1.02] z-50 ring-2 ring-indigo-500" : "hover:border-indigo-300 hover:bg-indigo-50"
         )}
@@ -81,9 +83,7 @@ export function PlayerCard({
         <div className="flex items-center gap-2 overflow-hidden flex-1 pointer-events-none">
           <div className="flex items-center gap-1 pointer-events-auto">
             <div 
-              {...attributes} 
-              {...listeners} 
-              className="text-gray-300 hover:text-indigo-600 transition-colors cursor-grab active:cursor-grabbing p-1 -ml-1 rounded hover:bg-indigo-50"
+              className="text-gray-300 group-hover:text-indigo-400 transition-colors p-1 -ml-1 rounded"
             >
               <GripVertical size={16} />
             </div>

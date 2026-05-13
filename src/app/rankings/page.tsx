@@ -48,13 +48,15 @@ function SortablePlayerRow({ player, index, disabled }: { player: Player, index:
     <div
       ref={setNodeRef}
       style={style}
+      {...attributes}
+      {...listeners}
       className={cn(
         "flex items-center gap-4 p-3 bg-white border border-gray-200 rounded-lg mb-2 shadow-sm",
         isDragging && "z-50 ring-2 ring-indigo-500 shadow-lg scale-[1.02]",
-        disabled && "opacity-75 bg-gray-50 cursor-not-allowed"
+        disabled ? "opacity-75 bg-gray-50 cursor-not-allowed" : "cursor-grab active:cursor-grabbing touch-none select-none hover:border-indigo-300"
       )}
     >
-      <div className={cn("text-gray-400", !disabled && "cursor-grab")} {...attributes} {...listeners}>
+      <div className="text-gray-400">
         <GripVertical size={20} />
       </div>
       <div className="font-black text-xl text-gray-300 w-8 text-right">{index + 1}</div>
@@ -176,7 +178,7 @@ export default function RankingsPage() {
 
     // Get the players ONLY in this team (in their current order)
     const teamPlayerIds = activeEvent.rankingPlayers
-      .filter(ep => ep.teamId === teamId)
+      .filter(ep => ep.fieldId === teamId)
       .map(ep => ep.id);
 
     const oldIndex = teamPlayerIds.indexOf(active.id as string);
@@ -186,7 +188,7 @@ export default function RankingsPage() {
       const newTeamPlayerIds = arrayMove(teamPlayerIds, oldIndex, newIndex);
 
       updateRankingPlayers(prev => {
-        const otherPlayers = prev.filter(ep => ep.teamId !== teamId);
+        const otherPlayers = prev.filter(ep => ep.fieldId !== teamId);
         const reorderedTeamPlayers = newTeamPlayerIds.map(id => prev.find(ep => ep.id === id)!);
         return [...otherPlayers, ...reorderedTeamPlayers];
       });

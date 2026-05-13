@@ -34,11 +34,7 @@ export interface FieldConfig {
 
 export type TeamConfig = FieldConfig;
 
-export interface Team {
-  id: string;
-  divisionId: string;
-  name: string;
-}
+export interface Team extends FieldConfig {}
 
 export interface GlobalPlayer {
   id: string;
