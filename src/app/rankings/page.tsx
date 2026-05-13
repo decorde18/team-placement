@@ -18,7 +18,8 @@ import {
   useSortable
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { loadAppData, saveAppData, AppData, getHydratedPlayers, Player, EventPlayer } from '@/lib/mockData';
+import { AppData, getHydratedPlayers, Player, EventPlayer } from '@/types';
+import { fetchAppData } from '@/app/actions/dbSync';
 import { Trophy, GripVertical, Calendar, Layers, Map } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -74,30 +75,33 @@ export default function RankingsPage() {
   const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
-    const data = loadAppData();
-    setAppData(data);
-    
-    const initialSeason = data.seasons[0]?.id || '';
-    setActiveSeasonId(initialSeason);
-    
-    const initialEvents = data.events.filter(e => e.seasonId === initialSeason && e.type === 'ranking');
-    const initialEvent = initialEvents[0]?.id || '';
-    setActiveEventId(initialEvent);
+    const init = async () => {
+      try {
+        const data = await fetchAppData();
+        setAppData(data);
+        
+        const initialSeason = data.seasons[0]?.id || '';
+        setActiveSeasonId(initialSeason);
+        
+        const events = data.events.filter(e => e.seasonId === initialSeason);
+        const initialEvent = events[0]?.id || '';
+        setActiveEventId(initialEvent);
 
-    const ev = initialEvents[0];
-    if (ev && ev.divisionIds.length > 0) {
-      setActiveDivisionId(ev.divisionIds[0]);
-    } else {
-      setActiveDivisionId(data.divisions[0]?.id || '');
-    }
-
-    setActiveUserId(data.users[0]?.id || '');
-    setIsMounted(true);
+        if (events[0]?.divisionIds.length > 0) {
+          setActiveDivisionId(events[0].divisionIds[0]);
+        }
+      } catch (err) {
+        console.error('Failed to load ranking data:', err);
+      } finally {
+        setIsMounted(true);
+      }
+    };
+    init();
   }, []);
 
   useEffect(() => {
     if (appData && isMounted) {
-      saveAppData(appData);
+      // Database sync would happen here if implemented for rankings
     }
   }, [appData, isMounted]);
 

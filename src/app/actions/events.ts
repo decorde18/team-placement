@@ -93,6 +93,7 @@ export async function createEvent(data: { name: string, season_id: number, event
     }
 
     await connection.commit();
+    await syncEventPlayers(eventId);
     revalidatePath("/admin/events");
     return { success: true };
   } catch (error) {
@@ -127,6 +128,7 @@ export async function updateEvent(id: number, data: { name: string, season_id: n
     }
 
     await connection.commit();
+    await syncEventPlayers(id);
     revalidatePath("/admin/events");
     return { success: true };
   } catch (error) {
@@ -165,10 +167,14 @@ export async function deleteEvent(id: number) {
 export async function createSession(data: { event_id: number, name: string, session_date: string }) {
   const connection = await db.getConnection();
   try {
-    await connection.query(
+    const [result]: any = await connection.query(
       `INSERT INTO sessions (event_id, name, session_date) VALUES (?, ?, ?)`,
       [data.event_id, data.name, data.session_date]
     );
+    
+    // Sync players to the new session
+    await syncEventPlayers(data.event_id, connection);
+    
     revalidatePath("/admin/events");
     return { success: true };
   } catch (error) {
@@ -211,4 +217,75 @@ export async function deleteSession(id: number) {
   } finally {
     connection.release();
   }
+}
+
+/**
+ * Ensures all players in the divisions associated with an event 
+ * are enrolled in all sessions of that event.
+ */
+export async function syncEventPlayers(eventId: number, conn?: any) {
+  const connection = conn || await db.getConnection();
+  try {
+    // 1. Get all divisions (season_age_group_id) for this event
+    const [divisions]: any = await connection.query(
+      `SELECT season_age_group_id FROM event_divisions WHERE event_id = ?`,
+      [eventId]
+    );
+    
+    if (divisions.length === 0) return;
+    
+    const divisionIds = divisions.map((d: any) => d.season_age_group_id);
+    
+    // 2. Get all sessions for this event
+    const [sessions]: any = await connection.query(
+      `SELECT id FROM sessions WHERE event_id = ?`,
+      [eventId]
+    );
+    
+    if (sessions.length === 0) return;
+    
+    // 3. Get all players in these divisions
+    const [players]: any = await connection.query(
+      `SELECT player_id FROM season_players WHERE season_age_group_id IN (?)`,
+      [divisionIds]
+    );
+    
+    if (players.length === 0) return;
+    
+    // 4. For each session and player, insert into session_players if not exists
+    // Using a single bulk INSERT IGNORE for performance
+    const values: any[] = [];
+    const placeholders: string[] = [];
+    
+    for (const session of sessions) {
+      for (const player of players) {
+        placeholders.push('(?, ?, \'present\', \'none\')');
+        values.push(session.id, player.player_id);
+      }
+    }
+    
+    if (values.length > 0) {
+      await connection.query(
+        `INSERT IGNORE INTO session_players (session_id, player_id, attendance_status, player_status) 
+         VALUES ${placeholders.join(', ')}`,
+        values
+      );
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error(`Failed to sync players for event ${eventId}:`, error);
+    throw error;
+  } finally {
+    if (!conn) connection.release();
+  }
+}
+
+/**
+ * Public action to manually refresh players for an event
+ */
+export async function refreshEventPlayers(eventId: number) {
+  await syncEventPlayers(eventId);
+  revalidatePath("/admin/events");
+  return { success: true };
 }

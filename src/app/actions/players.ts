@@ -3,6 +3,7 @@
 import db from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { getActiveClubId } from "./clubs";
+import { syncEventPlayers } from "./events";
 
 export interface UploadedPlayer {
   firstName: string;
@@ -31,12 +32,10 @@ export async function uploadPlayers(players: UploadedPlayer[]) {
   try {
     await connection.beginTransaction();
 
+    const affectedSeasonAgeGroupIds = new Set<number>();
+
     for (const player of players) {
       // 1. Insert or find player in `players` table
-      // Assuming combination of first_name, last_name, and dob might be somewhat unique, 
-      // but for simplicity, we'll just insert unless we implement strict deduplication.
-      // Or we can check if they exist.
-      
       let playerId: number;
 
       // Basic deduplication check within the club
@@ -65,16 +64,19 @@ export async function uploadPlayers(players: UploadedPlayer[]) {
 
       // 2. Insert into `season_players` if division/seasonAgeGroup is provided
       if (player.seasonAgeGroupId) {
+        const sagId = parseInt(player.seasonAgeGroupId);
+        affectedSeasonAgeGroupIds.add(sagId);
+
         // Check if already in season_players for this group
         const [existingSeasonPlayer]: any = await connection.query(
             `SELECT id FROM season_players WHERE player_id = ? AND season_age_group_id = ? LIMIT 1`,
-            [playerId, parseInt(player.seasonAgeGroupId)]
+            [playerId, sagId]
         );
 
         if (existingSeasonPlayer.length === 0) {
             await connection.query(
                 `INSERT INTO season_players (player_id, season_age_group_id, tryout_number, position, rating) VALUES (?, ?, ?, ?, ?)`,
-                [playerId, parseInt(player.seasonAgeGroupId), player.tryoutNumber || null, player.position || null, player.rating || 0]
+                [playerId, sagId, player.tryoutNumber || null, player.position || null, player.rating || 0]
             );
         } else {
              // Update if exists
@@ -87,6 +89,19 @@ export async function uploadPlayers(players: UploadedPlayer[]) {
     }
 
     await connection.commit();
+
+    // 3. Sync all events that include the affected divisions
+    if (affectedSeasonAgeGroupIds.size > 0) {
+        const [eventsToSync]: any = await connection.query(
+            `SELECT DISTINCT event_id FROM event_divisions WHERE season_age_group_id IN (?)`,
+            [Array.from(affectedSeasonAgeGroupIds)]
+        );
+
+        for (const e of eventsToSync) {
+            await syncEventPlayers(e.event_id, connection);
+        }
+    }
+
     revalidatePath("/admin/players");
     return { success: true, count: players.length };
 

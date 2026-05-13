@@ -1,13 +1,18 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
-import { loadAppData, AppData, getHydratedPlayers } from '@/lib/mockData';
+import { AppData, getHydratedPlayers } from '@/types';
+import { fetchAppData } from '@/app/actions/dbSync';
 
 export default function PrintPage() {
   const [appData, setAppData] = useState<AppData | null>(null);
 
   useEffect(() => {
-    setAppData(loadAppData());
+    const init = async () => {
+      const data = await fetchAppData();
+      setAppData(data);
+    };
+    init();
   }, []);
 
   if (!appData) {

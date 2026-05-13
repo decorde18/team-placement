@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect } from "react";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { UploadedPlayer, uploadPlayers, getPlayers } from "@/app/actions/players";
-import { UploadCloud, FileType, CheckCircle, AlertCircle, Loader2, Users, List, Filter, Search, Calendar, User, Shield } from "lucide-react";
+import { UploadCloud, FileType, CheckCircle, AlertCircle, Loader2, Users, List, Filter, Search, Calendar, User, Shield, ChevronDown, ChevronUp, ArrowUpDown, Plus, MoreVertical, Edit, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function PlayersManager({ divisions }: { divisions: any[] }) {
@@ -22,6 +22,7 @@ export default function PlayersManager({ divisions }: { divisions: any[] }) {
   const [isLoadingPlayers, setIsLoadingPlayers] = useState(false);
   const [filterDivision, setFilterDivision] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
+  const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' | null }>({ key: 'last_name', direction: 'asc' });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -154,10 +155,38 @@ export default function PlayersManager({ divisions }: { divisions: any[] }) {
     }
   };
 
-  const filteredRegisteredPlayers = registeredPlayers.filter(p => {
+  const requestSort = (key: string) => {
+    let direction: 'asc' | 'desc' | null = 'asc';
+    if (sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    } else if (sortConfig.key === key && sortConfig.direction === 'desc') {
+        direction = null;
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const getSortedPlayers = (players: any[]) => {
+    if (!sortConfig.key || !sortConfig.direction) return players;
+
+    return [...players].sort((a, b) => {
+      const aVal = a[sortConfig.key] || '';
+      const bVal = b[sortConfig.key] || '';
+      
+      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+  };
+
+  const filteredRegisteredPlayers = getSortedPlayers(registeredPlayers.filter(p => {
     const searchStr = `${p.first_name} ${p.last_name}`.toLowerCase();
     return searchStr.includes(searchTerm.toLowerCase());
-  });
+  }));
+
+  const SortIcon = ({ column }: { column: string }) => {
+    if (sortConfig.key !== column) return <ChevronDown size={14} className="opacity-0 group-hover:opacity-40" />;
+    return sortConfig.direction === 'asc' ? <ChevronDown size={14} className="text-indigo-600 rotate-180 transition-transform" /> : <ChevronDown size={14} className="text-indigo-600 transition-transform" />;
+  };
 
   return (
     <div className="space-y-6">
@@ -224,12 +253,24 @@ export default function PlayersManager({ divisions }: { divisions: any[] }) {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 text-slate-600 text-xs uppercase tracking-wider font-semibold border-b border-slate-200">
-                  <th className="px-6 py-4">Player</th>
-                  <th className="px-6 py-4">DOB / Gender</th>
-                  <th className="px-6 py-4">Division</th>
-                  <th className="px-6 py-4">Tryout #</th>
-                  <th className="px-6 py-4">Position</th>
-                  <th className="px-6 py-4">Rating</th>
+                  <th className="px-6 py-4 cursor-pointer group hover:bg-slate-100 transition-colors" onClick={() => requestSort('last_name')}>
+                    <div className="flex items-center gap-2">Player <SortIcon column="last_name" /></div>
+                  </th>
+                  <th className="px-6 py-4 cursor-pointer group hover:bg-slate-100 transition-colors" onClick={() => requestSort('date_of_birth')}>
+                    <div className="flex items-center gap-2">DOB / Gender <SortIcon column="date_of_birth" /></div>
+                  </th>
+                  <th className="px-6 py-4 cursor-pointer group hover:bg-slate-100 transition-colors" onClick={() => requestSort('age_group_name')}>
+                    <div className="flex items-center gap-2">Division <SortIcon column="age_group_name" /></div>
+                  </th>
+                  <th className="px-6 py-4 cursor-pointer group hover:bg-slate-100 transition-colors" onClick={() => requestSort('tryout_number')}>
+                    <div className="flex items-center gap-2">Tryout # <SortIcon column="tryout_number" /></div>
+                  </th>
+                  <th className="px-6 py-4 cursor-pointer group hover:bg-slate-100 transition-colors" onClick={() => requestSort('position')}>
+                    <div className="flex items-center gap-2">Position <SortIcon column="position" /></div>
+                  </th>
+                  <th className="px-6 py-4 cursor-pointer group hover:bg-slate-100 transition-colors" onClick={() => requestSort('rating')}>
+                    <div className="flex items-center gap-2">Rating <SortIcon column="rating" /></div>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">

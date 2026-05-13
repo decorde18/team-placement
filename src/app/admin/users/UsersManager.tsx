@@ -2,12 +2,14 @@
 
 import { useState, useTransition } from "react";
 import { createUser, updateUser, deleteUser } from "@/app/actions/admin";
+import { ChevronDown } from "lucide-react";
 
 export default function UsersManager({ initialUsers, currentUserRole }: { initialUsers: any[], currentUserRole: string }) {
   const [users, setUsers] = useState(initialUsers);
   const [isPending, startTransition] = useTransition();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<any | null>(null);
+  const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' | null }>({ key: 'name', direction: 'asc' });
 
   const [formData, setFormData] = useState({
     name: "",
@@ -18,6 +20,39 @@ export default function UsersManager({ initialUsers, currentUserRole }: { initia
 
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState<any | null>(null);
+
+  const requestSort = (key: string) => {
+    let direction: 'asc' | 'desc' | null = 'asc';
+    if (sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    } else if (sortConfig.key === key && sortConfig.direction === 'desc') {
+        direction = null;
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const getSortedUsers = (items: any[]) => {
+    if (!sortConfig.key || !sortConfig.direction) return items;
+
+    return [...items].sort((a, b) => {
+      let aVal = a[sortConfig.key] || '';
+      let bVal = b[sortConfig.key] || '';
+      
+      if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+      if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+
+      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+  };
+
+  const sortedUsers = getSortedUsers(users);
+
+  const SortIcon = ({ column }: { column: string }) => {
+    if (sortConfig.key !== column) return <ChevronDown size={14} className="ml-1 opacity-0 group-hover:opacity-40" />;
+    return sortConfig.direction === 'asc' ? <ChevronDown size={14} className="ml-1 text-indigo-600 rotate-180 transition-transform" /> : <ChevronDown size={14} className="ml-1 text-indigo-600 transition-transform" />;
+  };
 
   const openAddModal = () => {
     setEditingUser(null);
@@ -120,10 +155,18 @@ export default function UsersManager({ initialUsers, currentUserRole }: { initia
         <table className="w-full text-left text-sm whitespace-nowrap">
           <thead className="bg-slate-50/50 text-slate-500 uppercase tracking-wider text-xs border-b border-slate-200">
             <tr>
-              <th className="px-6 py-4 font-medium">Name</th>
-              <th className="px-6 py-4 font-medium">Email</th>
-              <th className="px-6 py-4 font-medium">Role</th>
-              <th className="px-6 py-4 font-medium">Assigned Team</th>
+              <th className="px-6 py-4 font-medium cursor-pointer group hover:bg-slate-100 transition-colors" onClick={() => requestSort('name')}>
+                <div className="flex items-center">Name <SortIcon column="name" /></div>
+              </th>
+              <th className="px-6 py-4 font-medium cursor-pointer group hover:bg-slate-100 transition-colors" onClick={() => requestSort('email')}>
+                <div className="flex items-center">Email <SortIcon column="email" /></div>
+              </th>
+              <th className="px-6 py-4 font-medium cursor-pointer group hover:bg-slate-100 transition-colors" onClick={() => requestSort('role')}>
+                <div className="flex items-center">Role <SortIcon column="role" /></div>
+              </th>
+              <th className="px-6 py-4 font-medium cursor-pointer group hover:bg-slate-100 transition-colors" onClick={() => requestSort('team_name')}>
+                <div className="flex items-center">Assigned Team <SortIcon column="team_name" /></div>
+              </th>
               <th className="px-6 py-4 font-medium text-right">Actions</th>
             </tr>
           </thead>
@@ -135,7 +178,7 @@ export default function UsersManager({ initialUsers, currentUserRole }: { initia
                 </td>
               </tr>
             ) : null}
-            {users.map((user) => (
+            {sortedUsers.map((user) => (
               <tr key={user.id} className="hover:bg-slate-50 transition-colors group">
                 <td className="px-6 py-4">
                   <div className="font-medium text-slate-900">{user.name}</div>

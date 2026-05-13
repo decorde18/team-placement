@@ -3,7 +3,7 @@
 import React from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Player, PlayerStatus, PlayerAttendance } from '@/lib/mockData';
+import { Player, PlayerStatus, PlayerAttendance } from '@/types';
 import { GripVertical, Crosshair, Star, MessageSquare, ClipboardList, Info } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -16,6 +16,7 @@ interface PlayerCardProps {
   player: Player;
   isTryoutMode: boolean;
   viewMode: 'table' | 'kanban';
+  isCompact?: boolean;
   onStatusChange?: (id: string, status: PlayerStatus) => void;
   onAttendanceChange?: (id: string, attendance: PlayerAttendance) => void;
   onViewDetails?: (player: Player) => void;
@@ -26,6 +27,7 @@ export function PlayerCard({
   player, 
   isTryoutMode, 
   viewMode, 
+  isCompact,
   onStatusChange, 
   onAttendanceChange,
   onViewDetails,
@@ -65,6 +67,78 @@ export function PlayerCard({
     return "bg-white border-gray-100";
   };
 
+  if (isCompact) {
+    return (
+      <div
+        ref={setNodeRef}
+        style={style}
+        className={cn(
+          "group flex items-center justify-between p-2 mb-1.5 rounded-lg shadow-sm border transition-all select-none touch-none relative",
+          getCardStyles(),
+          isDragging ? "opacity-20 shadow-2xl scale-[1.02] z-50 ring-2 ring-indigo-500" : "hover:border-indigo-300 hover:bg-indigo-50"
+        )}
+      >
+        <div className="flex items-center gap-2 overflow-hidden flex-1 pointer-events-none">
+          <div className="flex items-center gap-1 pointer-events-auto">
+            <div 
+              {...attributes} 
+              {...listeners} 
+              className="text-gray-300 hover:text-indigo-600 transition-colors cursor-grab active:cursor-grabbing p-1 -ml-1 rounded hover:bg-indigo-50"
+            >
+              <GripVertical size={16} />
+            </div>
+            <button 
+              onPointerDown={(e) => {
+                e.stopPropagation();
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                onViewDetails?.(player);
+              }}
+              className="p-1 text-indigo-400 hover:text-indigo-600 hover:bg-indigo-100 rounded-full transition-colors z-20 relative pointer-events-auto"
+              title="Player Details"
+            >
+              <Info size={14} />
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="bg-indigo-50 text-indigo-700 font-bold px-1.5 py-0.5 rounded text-[10px] min-w-[28px] text-center">
+              #{player.tryoutNumber}
+            </div>
+            <span className="font-semibold text-gray-900 text-[11px] truncate">{player.name}</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 shrink-0 ml-2">
+          <span className="text-[9px] text-gray-400 font-bold uppercase tracking-tighter w-8 text-right">{player.position.substring(0, 3)}</span>
+          <span className="flex items-center gap-0.5 font-black text-gray-800 text-[11px] min-w-[30px]"><Star size={10} className="text-yellow-400 fill-yellow-400" /> {player.rating}</span>
+          
+          {/* Mini Attendance Toggle */}
+          <select 
+            value={player.attendance}
+            onChange={(e) => {
+              e.stopPropagation();
+              onAttendanceChange?.(player.id, e.target.value as PlayerAttendance);
+            }}
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            className={cn(
+              "text-[9px] font-black rounded border-0 outline-none w-6 h-6 flex items-center justify-center cursor-pointer transition-colors appearance-none text-center shadow-sm",
+              player.attendance === 'present' ? "bg-green-100 text-green-700 hover:bg-green-200" :
+              player.attendance === 'absent' ? "bg-red-100 text-red-700 hover:bg-red-200" :
+              "bg-yellow-100 text-yellow-700 hover:bg-yellow-200"
+            )}
+            title={player.attendance === 'present' ? 'Present' : player.attendance === 'absent' ? 'Not Present' : 'Unavailable'}
+          >
+            <option value="present">P</option>
+            <option value="excused">U</option>
+            <option value="absent">N</option>
+          </select>
+        </div>
+      </div>
+    );
+  }
+
   if (viewMode === 'table') {
     return (
       <div
@@ -73,9 +147,9 @@ export function PlayerCard({
         {...attributes}
         {...listeners}
         className={cn(
-          "group flex items-center justify-between p-3 mb-2 rounded-xl shadow-sm border transition-all hover:shadow-md cursor-grab active:cursor-grabbing",
+          "group flex items-center justify-between p-3 mb-2 rounded-xl shadow-sm border transition-all hover:shadow-md cursor-grab active:cursor-grabbing select-none touch-none",
           getCardStyles(),
-          isDragging ? "opacity-50 shadow-lg scale-[1.02] z-50 ring-2 ring-indigo-500" : ""
+          isDragging ? "opacity-20 shadow-none border-dashed border-gray-300" : ""
         )}
       >
         <div className="flex items-center gap-4 flex-1 pointer-events-none">
@@ -151,9 +225,9 @@ export function PlayerCard({
       {...attributes}
       {...listeners}
       className={cn(
-        "group p-4 rounded-xl shadow-sm border mb-3 transition-all hover:shadow-md cursor-grab active:cursor-grabbing",
+        "group p-4 rounded-2xl border transition-all duration-200 cursor-grab active:cursor-grabbing select-none touch-none",
         getCardStyles(),
-        isDragging ? "opacity-50 shadow-lg scale-105 z-50 ring-2 ring-indigo-500 rotate-2" : ""
+        isDragging ? "opacity-20 shadow-none border-dashed border-gray-300" : "hover:shadow-xl hover:border-indigo-300 hover:-translate-y-1"
       )}
     >
       <div className="flex justify-between items-start mb-3 pointer-events-none">

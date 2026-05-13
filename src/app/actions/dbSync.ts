@@ -1,9 +1,10 @@
 "use server";
 
 import db from "@/lib/db";
-import { AppData, User, Season, Division, GlobalPlayer, AppEvent, Session, TeamConfig, EventPlayer, CoachNote } from "@/lib/mockData";
+import { AppData, User, Season, Division, GlobalPlayer, AppEvent, Session, FieldConfig, EventPlayer, CoachNote, Team } from "@/types";
 
 import { getActiveClubId } from "./clubs";
+import { syncEventPlayers } from "./events";
 
 export async function fetchAppData(): Promise<AppData> {
   const clubId = await getActiveClubId();
@@ -42,7 +43,7 @@ export async function fetchAppData(): Promise<AppData> {
     }));
 
     const [dbGlobalPlayers]: any = await connection.query(`
-      SELECT p.id, sp.season_age_group_id, p.first_name, p.last_name, sp.tryout_number, sp.position, sp.rating 
+      SELECT p.id, sp.season_age_group_id, p.first_name, p.last_name, sp.tryout_number, sp.position, sp.rating, sp.player_status 
       FROM players p 
       JOIN season_players sp ON p.id = sp.player_id
       WHERE p.club_id = ?
@@ -50,10 +51,11 @@ export async function fetchAppData(): Promise<AppData> {
     const globalPlayers: GlobalPlayer[] = dbGlobalPlayers.map((gp: any) => ({
       id: String(gp.id),
       divisionId: String(gp.season_age_group_id),
-      name: `${gp.first_name} ${gp.last_name}`,
+      name: `${gp.last_name}, ${gp.first_name}`,
       tryoutNumber: gp.tryout_number || '',
       position: gp.position || '',
-      rating: gp.rating || 0
+      rating: gp.rating || 0,
+      status: (gp.player_status || 'none') as any
     }));
 
     const [dbEvents]: any = await connection.query(`
@@ -113,8 +115,21 @@ export async function fetchAppData(): Promise<AppData> {
       JOIN club_seasons cs ON e.season_id = cs.season_id
       WHERE cs.club_id = ?
     `, [clubId]);
+
+    const [dbSessionFields]: any = await connection.query(`
+      SELECT sf.id, sf.session_id, sf.name, sf.sort_by, sf.sort_direction, sf.filter_by
+      FROM session_fields sf
+      JOIN sessions s ON sf.session_id = s.id
+      JOIN events e ON s.event_id = e.id
+      JOIN club_seasons cs ON e.season_id = cs.season_id
+      WHERE cs.club_id = ?
+    `, [clubId]);
+
     const [dbSessionPlayers]: any = await connection.query(`
-      SELECT sp.id, sp.session_id, sp.player_id, sp.team_id, sp.attendance_status, sp.player_status 
+      SELECT 
+        sp.id, sp.session_id, sp.player_id, sp.field_id, 
+        sp.attendance_status, sp.rank,
+        (SELECT season_age_group_id FROM season_players WHERE player_id = sp.player_id LIMIT 1) as division_id
       FROM session_players sp
       JOIN players p ON sp.player_id = p.id
       WHERE p.club_id = ?
@@ -123,39 +138,51 @@ export async function fetchAppData(): Promise<AppData> {
     const sessions: Session[] = dbSessions.map((s: any) => {
       const sessionIdStr = String(s.id);
       const sPlayers = dbSessionPlayers.filter((sp: any) => String(sp.session_id) === sessionIdStr);
+      const sFields = dbSessionFields.filter((sf: any) => String(sf.session_id) === sessionIdStr);
       
+      const event = events.find(e => e.id === String(s.event_id));
+      
+      const virtualUnassignedFields: FieldConfig[] = event ? event.divisionIds.map(divId => ({
+        id: `unassigned-${divId}-${sessionIdStr}`,
+        divisionId: divId,
+        name: 'Unassigned Pool',
+        sortBy: 'rating',
+        sortDirection: 'desc',
+        filterBy: 'all',
+        ratingFilter: 'all'
+      })) : [];
+
       const sessionPlayers: EventPlayer[] = sPlayers.map((sp: any) => {
         const playerIdStr = String(sp.player_id);
-        const playerNotes = coachNotes.filter((cn: any) => cn.playerId === playerIdStr && cn.sessionId === sessionIdStr).map((cn: any) => ({
-          id: cn.id,
-          coachId: cn.coachId,
-          eventId: cn.eventId,
-          sessionId: cn.sessionId,
-          text: cn.text,
-          timestamp: cn.timestamp
-        } as CoachNote));
-
+        const divId = sp.division_id ? String(sp.division_id) : (event?.divisionIds[0] || '');
         return {
           id: playerIdStr,
-          status: sp.player_status as any,
-          attendance: sp.attendance_status as any,
-          notes: playerNotes,
-          teamId: sp.team_id ? String(sp.team_id) : 'unassigned'
+          attendance: (sp.attendance_status || 'present') as any,
+          notes: coachNotes.filter((cn: any) => cn.playerId === playerIdStr && cn.sessionId === sessionIdStr),
+          fieldId: sp.field_id ? String(sp.field_id) : `unassigned-${divId}-${sessionIdStr}`,
+          rank: sp.rank || 0
         };
       });
 
-      const event = events.find(e => e.id === String(s.event_id));
-      let sessionTeams = teamsList;
-      if (event) {
-         sessionTeams = teamsList.filter(t => event.divisionIds.includes(t.divisionId));
-      }
+      const fields: FieldConfig[] = [
+        ...virtualUnassignedFields,
+        ...sFields.map((sf: any) => ({
+          id: String(sf.id),
+          divisionId: String(dbSessionPlayers.find((sp: any) => String(sp.field_id) === String(sf.id))?.division_id || event?.divisionIds[0] || ''),
+          name: sf.name,
+          sortBy: (sf.sort_by || 'name') as any,
+          sortDirection: (sf.sort_direction || 'asc') as any,
+          filterBy: (sf.filter_by || 'all') as any,
+          ratingFilter: (sf.rating_filter || 'all') as any
+        }))
+      ];
 
       return {
         id: sessionIdStr,
         eventId: String(s.event_id),
         name: s.name,
-        date: s.session_date ? s.session_date.toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-        teams: sessionTeams,
+        date: s.session_date ? (s.session_date instanceof Date ? s.session_date.toISOString().split('T')[0] : String(s.session_date)) : new Date().toISOString().split('T')[0],
+        fields: fields,
         sessionPlayers: sessionPlayers
       };
     });
@@ -166,95 +193,108 @@ export async function fetchAppData(): Promise<AppData> {
       divisions,
       globalPlayers,
       events,
-      sessions
+      sessions,
+      teams: teamsList.map(t => ({ id: t.id, divisionId: t.divisionId, name: t.name }))
     };
   } finally {
     connection.release();
   }
 }
 
-// Full Sync is complex because we have to determine what changed.
-// Given PlayerBoard saves the ENTIRE AppData state, we will do a targeted sync.
-// We primarily care about: 
-// 1. Session Players (team_id, player_status, attendance_status)
-// 2. Teams (name, sort_by, filter_by)
-// 3. New Coach Notes (we'll just insert any note that doesn't exist or is a generic ID)
-// 4. New Sessions created on the fly
 export async function syncAppData(appData: AppData) {
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
 
-    // 1. Sync Teams
-    // Since AppData has teams inside sessions, we flatten them.
-    // In DB, teams are global. We'll update by ID. If id starts with 'team-', we assume it's new.
-    // But since mockData also has 'team-1', it's tricky.
-    // For now, let's just update existing numeric IDs, and insert new ones.
-    const allTeams = new Map<string, TeamConfig>();
-    appData.sessions.forEach(s => {
-        s.teams.forEach(t => allTeams.set(t.id, t));
-    });
+    const idMappings: { [key: string]: string } = {};
 
-    for (const [id, t] of allTeams.entries()) {
-        if (!id.includes('unassigned')) {
-             if (id.startsWith('team-')) {
-                 // It's a new team created in UI
-                 const [res]: any = await connection.query(
-                     `INSERT INTO teams (season_age_group_id, name, sort_by, filter_by) VALUES (?, ?, ?, ?)`,
-                     [parseInt(t.divisionId), t.name, t.sortBy, t.filterBy]
-                 );
-                 // We'd need to map the new ID back to the session_players... 
-                 // This is a complex mapping problem if we don't return the new IDs to the client.
-                 // For a robust sync, the client should call specific actions (e.g. createTeam) rather than massive sync.
-                 // However, we will do our best here.
-             } else {
-                 // Existing numeric ID
-                 await connection.query(
-                     `UPDATE teams SET name = ?, sort_by = ?, filter_by = ? WHERE id = ?`,
-                     [t.name, t.sortBy, t.filterBy, parseInt(id)]
-                 );
-             }
-        }
-    }
-
-    // 2. Sync Session Players
+    // PASS 1: Sync all Session Fields across all sessions to build mappings
     for (const s of appData.sessions) {
-        // If session ID is numeric, it exists. If it starts with 'session-', it's new.
         let sessionId = parseInt(s.id);
+        // Ensure session exists
         if (isNaN(sessionId) && s.id.startsWith('session-')) {
             const [res]: any = await connection.query(
                 `INSERT INTO sessions (event_id, name, session_date) VALUES (?, ?, ?)`,
                 [parseInt(s.eventId), s.name, s.date]
             );
             sessionId = res.insertId;
+            idMappings[s.id] = String(sessionId);
+            await syncEventPlayers(parseInt(s.eventId), connection);
         }
 
+        // Cleanup fields
+        const currentFieldIds = s.fields.filter(f => !f.id.includes('unassigned') && !f.id.startsWith('field-') && !f.id.startsWith('team-')).map(f => parseInt(f.id));
+        if (currentFieldIds.length > 0) {
+            await connection.query(`DELETE FROM session_fields WHERE session_id = ? AND id NOT IN (?)`, [sessionId, currentFieldIds]);
+        } else {
+            await connection.query(`DELETE FROM session_fields WHERE session_id = ?`, [sessionId]);
+        }
+
+        // Create/Update fields and store mappings
+        for (const f of s.fields) {
+            if (!f.id.includes('unassigned')) {
+                if (f.id.startsWith('field-') || f.id.startsWith('team-')) {
+                    const [res]: any = await connection.query(
+                        `INSERT INTO session_fields (session_id, name) VALUES (?, ?)`,
+                        [sessionId, f.name]
+                    );
+                    idMappings[f.id] = String(res.insertId);
+                } else {
+                    await connection.query(
+                        `UPDATE session_fields SET name = ? WHERE id = ?`,
+                        [f.name, parseInt(f.id)]
+                    );
+                }
+            }
+        }
+    }
+
+    // PASS 2: Sync all Players (now that ALL fields are guaranteed to exist in the DB)
+    for (const s of appData.sessions) {
+        const sessionId = idMappings[s.id] ? parseInt(idMappings[s.id]) : parseInt(s.id);
+        if (isNaN(sessionId)) continue;
+
+        const [existingSessionPlayers]: any = await connection.query(
+            `SELECT id, player_id FROM session_players WHERE session_id = ?`,
+            [sessionId]
+        );
+        const sessionPlayerMap = new Map(existingSessionPlayers.map((p: any) => [String(p.player_id), p.id]));
+
         for (const sp of s.sessionPlayers) {
-            let teamId = sp.teamId.includes('unassigned') ? null : parseInt(sp.teamId);
-            if (isNaN(teamId as number)) teamId = null; // Fallback if team is new and we couldn't map it.
+            let fieldIdRaw = sp.fieldId;
+            if (idMappings[fieldIdRaw]) fieldIdRaw = idMappings[fieldIdRaw];
+            
+            let fieldId = (fieldIdRaw.includes('unassigned') || fieldIdRaw.startsWith('field-') || fieldIdRaw.startsWith('team-')) 
+                ? null 
+                : parseInt(fieldIdRaw);
+            
+            if (isNaN(fieldId as number)) fieldId = null;
 
-            // Upsert session_player
-            const [existing]: any = await connection.query(
-                `SELECT id FROM session_players WHERE session_id = ? AND player_id = ?`,
-                [sessionId, parseInt(sp.id)]
-            );
+            const existingId = sessionPlayerMap.get(String(sp.id));
 
-            if (existing.length > 0) {
+            if (existingId) {
                 await connection.query(
-                    `UPDATE session_players SET team_id = ?, attendance_status = ?, player_status = ? WHERE id = ?`,
-                    [teamId, sp.attendance, sp.status, existing[0].id]
+                    `UPDATE session_players SET field_id = ?, attendance_status = ?, rank = ? WHERE id = ?`,
+                    [fieldId, sp.attendance, sp.rank || 0, existingId]
                 );
             } else {
                 await connection.query(
-                    `INSERT INTO session_players (session_id, player_id, team_id, attendance_status, player_status) VALUES (?, ?, ?, ?, ?)`,
-                    [sessionId, parseInt(sp.id), teamId, sp.attendance, sp.status]
+                    `INSERT IGNORE INTO session_players (session_id, player_id, field_id, attendance_status, rank) VALUES (?, ?, ?, ?, ?)`,
+                    [sessionId, parseInt(sp.id), fieldId, sp.attendance, sp.rank || 0]
                 );
             }
 
-            // Sync notes
+            // Sync status to season_players (Selection Status)
+            const globalPlayer = appData.globalPlayers.find(gp => gp.id === sp.id);
+            if (globalPlayer) {
+              await connection.query(
+                `UPDATE season_players SET player_status = ? WHERE player_id = ?`,
+                [globalPlayer.status, parseInt(sp.id)]
+              );
+            }
+
             for (const note of sp.notes) {
                 if (note.id.startsWith('note-')) {
-                    // New note
                     await connection.query(
                         `INSERT INTO coach_notes (coach_id, session_id, event_id, player_id, note_text) VALUES (?, ?, ?, ?, ?)`,
                         [parseInt(note.coachId), sessionId, parseInt(note.eventId), parseInt(sp.id), note.text]
@@ -265,7 +305,7 @@ export async function syncAppData(appData: AppData) {
     }
 
     await connection.commit();
-    return { success: true };
+    return { success: true, idMappings };
   } catch (error) {
     await connection.rollback();
     console.error("Sync error:", error);

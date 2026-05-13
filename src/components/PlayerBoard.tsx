@@ -9,6 +9,7 @@ import {
   useSensor, 
   useSensors, 
   closestCorners,
+  rectIntersection,
   DragOverlay
 } from '@dnd-kit/core';
 import { arrayMove } from '@dnd-kit/sortable';
@@ -19,19 +20,17 @@ import {
   EventPlayer,
   Player, 
   PlayerStatus, 
-  TeamConfig, 
+  FieldConfig, 
   SortOption, 
   FilterOption,
-  loadAppData,
-  saveAppData,
-  getHydratedPlayers,
   CoachNote,
-  PlayerAttendance
-} from '@/lib/mockData';
+  PlayerAttendance,
+  getHydratedPlayers
+} from '@/types';
 import { fetchAppData, syncAppData } from '@/app/actions/dbSync';
 import { TeamSection } from './TeamSection';
 import { PlayerCard } from './PlayerCard';
-import { LayoutGrid, List, Settings2, Users as UsersIcon, Plus, Calendar, Shield, Map, Layers, Loader2 } from 'lucide-react';
+import { LayoutGrid, List, Settings2, Users as UsersIcon, Plus, Calendar, Shield, Map, Layers, Loader2, ArrowUpDown } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -40,41 +39,57 @@ function cn(...inputs: ClassValue[]) {
 }
 
 // Helper to sort and filter players
-const getProcessedPlayers = (players: Player[], team: TeamConfig) => {
-  let teamPlayers = players.filter(p => p.teamId === team.id);
+const getProcessedPlayers = (players: Player[], field: FieldConfig) => {
+  let fieldPlayers = players.filter(p => p.fieldId === field.id);
   
-  if (team.filterBy !== 'all') {
-    teamPlayers = teamPlayers.filter(p => p.position === team.filterBy);
+  if (field.filterBy !== 'all') {
+    fieldPlayers = fieldPlayers.filter(p => p.position === field.filterBy);
   }
 
-  if (team.sortBy === 'name') {
-    teamPlayers.sort((a, b) => a.name.localeCompare(b.name));
-  } else if (team.sortBy === 'rating') {
-    teamPlayers.sort((a, b) => b.rating - a.rating); // descending
-  } else if (team.sortBy === 'position') {
-    teamPlayers.sort((a, b) => a.position.localeCompare(b.position));
-  } else if (team.sortBy === 'status') {
-    const statusOrder: Record<string, number> = {
-      'accepted': 1,
-      'invited': 2,
-      'waiting to send invitation': 3,
-      'none': 4,
-      'declined': 5
-    };
-    teamPlayers.sort((a, b) => (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99));
-  }
+    // Rating Filter (Numerical thresholds)
+    if (field.ratingFilter && field.ratingFilter !== 'all') {
+      const minRating = parseFloat(field.ratingFilter);
+      if (!isNaN(minRating)) {
+        fieldPlayers = fieldPlayers.filter(p => p.rating >= minRating);
+      }
+    }
 
-  // Force declined players to the bottom
-  teamPlayers.sort((a, b) => {
+  const direction = field.sortDirection || 'asc';
+
+  // Single, unified sort to prevent logic interference
+  fieldPlayers.sort((a, b) => {
+    // 1. Primary Sort (Rating, Name, Position, etc.)
+    if (field.sortBy && field.sortBy !== 'manual') {
+      const direction = field.sortDirection || 'asc';
+      
+      if (field.sortBy === 'name') {
+        const cmp = a.name.localeCompare(b.name);
+        if (cmp !== 0) return direction === 'asc' ? cmp : -cmp;
+      } else if (field.sortBy === 'rating') {
+        const diff = a.rating - b.rating;
+        if (diff !== 0) return direction === 'asc' ? diff : -diff;
+      } else if (field.sortBy === 'position') {
+        const cmp = a.position.localeCompare(b.position);
+        if (cmp !== 0) return direction === 'asc' ? cmp : -cmp;
+      } else if (field.sortBy === 'rank' || field.sortBy === 'manual') {
+        const diff = (a.rank || 0) - (b.rank || 0);
+        if (diff !== 0) return direction === 'asc' ? diff : -diff;
+      }
+    }
+
+    // 2. Secondary Sort (Tie-breaker by status)
     if (a.status === 'declined' && b.status !== 'declined') return 1;
     if (a.status !== 'declined' && b.status === 'declined') return -1;
-    return 0;
+    
+    // 3. Final Tie-breaker (Name)
+    return a.name.localeCompare(b.name);
   });
 
-  return teamPlayers;
+  return fieldPlayers;
 };
 
 export function PlayerBoard() {
+  const [batchLimit, setBatchLimit] = useState<'all' | '10' | '20' | '30'>('all');
   const [appData, setAppData] = useState<AppData | null>(null);
   const [activeSeasonId, setActiveSeasonId] = useState<string>('');
   const [activeEventId, setActiveEventId] = useState<string>('');
@@ -84,8 +99,9 @@ export function PlayerBoard() {
   
   const [isMounted, setIsMounted] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
+  const [viewMode, setViewMode] = useState<'table' | 'kanban'>('kanban');
   const [isTryoutMode, setIsTryoutMode] = useState(false);
+  const [isDragging, setIsDraggingGlobal] = useState(false);
   const [activePlayer, setActivePlayer] = useState<Player | null>(null);
   const [selectedPlayerForDetails, setSelectedPlayerForDetails] = useState<Player | null>(null);
 
@@ -94,95 +110,127 @@ export function PlayerBoard() {
   const [newSessionName, setNewSessionName] = useState('');
   const [cloneSessionId, setCloneSessionId] = useState<string>('none');
 
+  const lastSyncedDataRef = React.useRef<string>('');
+
   useEffect(() => {
-    async function loadData() {
-      setIsLoading(true);
+    const init = async () => {
       try {
-        // ALWAYS use database to stay in sync with Admin panel
-        const dbData = await fetchAppData();
-        setAppData(dbData);
-        setDefaults(dbData);
-      } catch (err) {
-        console.error("Failed to load app data from database:", err);
-        // Fallback to local only if DB fails completely
-        const data = loadAppData();
+        const data = await fetchAppData();
         setAppData(data);
-        setDefaults(data);
-      } finally {
+        if (data) {
+          const initialSeason = data.seasons[0]?.id || '';
+          setActiveSeasonId(initialSeason);
+          const initialEvents = data.events.filter(e => e.seasonId === initialSeason);
+          const initialEvent = initialEvents[0]?.id || '';
+          setActiveEventId(initialEvent);
+          const initialSessions = data.sessions.filter(s => s.eventId === initialEvent);
+          const initialSession = initialSessions[0]?.id || '';
+          setActiveSessionId(initialSession);
+          const ev = initialEvents[0];
+          if (ev && ev.divisionIds.length > 0) {
+            setActiveDivisionId(ev.divisionIds[0]);
+          } else {
+            setActiveDivisionId(data.divisions[0]?.id || '');
+          }
+          setActiveUserId(data.users[0]?.id || '');
+
+          // Capture initial fingerprint to prevent immediate sync on load
+          lastSyncedDataRef.current = JSON.stringify(data.sessions.map(s => ({
+            id: s.id,
+            fields: s.fields.map(f => ({ id: f.id, name: f.name })),
+            players: s.sessionPlayers.map(p => ({ id: p.id, fieldId: p.fieldId, status: p.status, att: p.attendance, noteCount: p.notes.length }))
+          })));
+        }
         setIsLoading(false);
-        setIsMounted(true);
+      } catch (err) {
+        console.error('Failed to load real data from DB:', err);
+        setIsLoading(false);
       }
-    }
-    
-    function setDefaults(data: AppData) {
-      if (!data) return;
-
-      const initialSeason = data.seasons[0]?.id || '';
-      setActiveSeasonId(initialSeason);
-      
-      const initialEvents = data.events.filter(e => e.seasonId === initialSeason);
-      const initialEvent = initialEvents[0]?.id || '';
-      setActiveEventId(initialEvent);
-
-      const initialSessions = data.sessions.filter(s => s.eventId === initialEvent);
-      const initialSession = initialSessions[0]?.id || '';
-      setActiveSessionId(initialSession);
-
-      const ev = initialEvents[0];
-      if (ev && ev.divisionIds.length > 0) {
-        setActiveDivisionId(ev.divisionIds[0]);
-      } else {
-        setActiveDivisionId(data.divisions[0]?.id || '');
-      }
-
-      setActiveUserId(data.users[0]?.id || '');
-    }
-
-    loadData();
+    };
+    init();
+    setIsMounted(true);
   }, []);
 
+  // Debounced Sync Effect
   useEffect(() => {
-    if (appData && isMounted) {
-      // Sync to DB in background
-      syncAppData(appData).catch(err => console.error("Failed to sync to DB:", err));
-      saveAppData(appData); // also save to local for speed/backup
-    }
+    if (!appData || !isMounted) return;
+
+    // Create a fingerprint of ONLY the data that belongs in the DB
+    // (Player movements, field names, and notes)
+    const currentDataFingerprint = JSON.stringify(appData.sessions.map(s => ({
+      id: s.id,
+      fields: s.fields.map(f => ({ id: f.id, name: f.name })),
+      players: s.sessionPlayers.map(p => ({ id: p.id, fieldId: p.fieldId, status: p.status, att: p.attendance, noteCount: p.notes.length }))
+    })));
+
+    // If the important data hasn't changed, DO NOT sync (silences sort/filter noise)
+    if (currentDataFingerprint === lastSyncedDataRef.current || isDragging) return;
+
+    const timer = setTimeout(async () => {
+      try {
+        const result = await syncAppData(appData);
+        
+        // Update our 'last synced' fingerprint so we don't sync the same thing twice
+        lastSyncedDataRef.current = currentDataFingerprint;
+        
+        // ONLY update state if we got new IDs back from the server
+        // This is critical to prevent the infinite refresh loop
+        if (result.success && result.idMappings && Object.keys(result.idMappings).length > 0) {
+          setAppData(prev => {
+            if (!prev) return prev;
+            let newData = { ...prev };
+            
+            // Apply mappings to sessions, fields, and players
+            newData.sessions = newData.sessions.map(s => {
+              const mappedSessionId = result.idMappings![s.id];
+              const updatedSession = mappedSessionId ? { ...s, id: mappedSessionId } : s;
+              
+              return {
+                ...updatedSession,
+                fields: updatedSession.fields.map(f => 
+                  result.idMappings![f.id] ? { ...f, id: result.idMappings![f.id] } : f
+                ),
+                sessionPlayers: updatedSession.sessionPlayers.map(sp => 
+                  result.idMappings![sp.fieldId] ? { ...sp, fieldId: result.idMappings![sp.fieldId] } : sp
+                )
+              };
+            });
+            
+            return newData;
+          });
+        }
+      } catch (err) {
+        console.error("Failed to sync to DB:", err);
+      }
+      
+    }, 1500);
+
+    return () => clearTimeout(timer);
   }, [appData, isMounted]);
 
   const activeUser = useMemo(() => appData?.users.find(u => u.id === activeUserId), [appData, activeUserId]);
-  
-  // Cascading derivations
   const seasonEvents = useMemo(() => appData?.events.filter(e => e.seasonId === activeSeasonId) || [], [appData, activeSeasonId]);
   const activeEvent = useMemo(() => seasonEvents.find(e => e.id === activeEventId), [seasonEvents, activeEventId]);
-  
   const eventSessions = useMemo(() => appData?.sessions.filter(s => s.eventId === activeEventId) || [], [appData, activeEventId]);
   const activeSession = useMemo(() => eventSessions.find(s => s.id === activeSessionId), [eventSessions, activeSessionId]);
-
   const availableDivisions = useMemo(() => {
     if (!appData || !activeEvent) return [];
     return appData.divisions.filter(d => activeEvent.divisionIds.includes(d.id));
   }, [appData, activeEvent]);
 
-  // Handle cascading default updates when parents change
   useEffect(() => {
     if (isMounted && activeSeasonId && appData) {
       const events = appData.events.filter(e => e.seasonId === activeSeasonId);
-      if (!events.some(e => e.id === activeEventId)) {
-        setActiveEventId(events[0]?.id || '');
-      }
+      if (!events.some(e => e.id === activeEventId)) setActiveEventId(events[0]?.id || '');
     }
   }, [activeSeasonId, isMounted, appData, activeEventId]);
 
   useEffect(() => {
     if (isMounted && activeEventId && appData) {
       const sessions = appData.sessions.filter(s => s.eventId === activeEventId);
-      if (!sessions.some(s => s.id === activeSessionId)) {
-        setActiveSessionId(sessions[0]?.id || '');
-      }
+      if (!sessions.some(s => s.id === activeSessionId)) setActiveSessionId(sessions[0]?.id || '');
       const event = appData.events.find(e => e.id === activeEventId);
-      if (event && !event.divisionIds.includes(activeDivisionId)) {
-        setActiveDivisionId(event.divisionIds[0] || '');
-      }
+      if (event && !event.divisionIds.includes(activeDivisionId)) setActiveDivisionId(event.divisionIds[0] || '');
     }
   }, [activeEventId, isMounted, appData, activeSessionId, activeDivisionId]);
 
@@ -192,10 +240,9 @@ export function PlayerBoard() {
     return getHydratedPlayers(divPlayers, activeSession.sessionPlayers);
   }, [appData, activeSession, activeDivisionId]);
 
-  // Only show teams for the active division
-  const activeDivisionTeams = useMemo(() => {
+  const activeDivisionFields = useMemo(() => {
     if (!activeSession || !activeDivisionId) return [];
-    return activeSession.teams.filter(t => t.divisionId === activeDivisionId);
+    return activeSession.fields.filter(f => f.divisionId === activeDivisionId);
   }, [activeSession, activeDivisionId]);
 
   const updateSessionPlayers = (updater: (prev: EventPlayer[]) => EventPlayer[]) => {
@@ -203,23 +250,17 @@ export function PlayerBoard() {
       if (!prev) return prev;
       return {
         ...prev,
-        sessions: prev.sessions.map(s => s.id === activeSessionId ? {
-          ...s,
-          sessionPlayers: updater(s.sessionPlayers)
-        } : s)
+        sessions: prev.sessions.map(s => s.id === activeSessionId ? { ...s, sessionPlayers: updater(s.sessionPlayers) } : s)
       };
     });
   };
 
-  const updateTeams = (updater: (prev: TeamConfig[]) => TeamConfig[]) => {
+  const updateFields = (updater: (prev: FieldConfig[]) => FieldConfig[]) => {
     setAppData(prev => {
       if (!prev) return prev;
       return {
         ...prev,
-        sessions: prev.sessions.map(s => s.id === activeSessionId ? {
-          ...s,
-          teams: updater(s.teams)
-        } : s)
+        sessions: prev.sessions.map(s => s.id === activeSessionId ? { ...s, fields: updater(s.fields) } : s)
       };
     });
   };
@@ -227,78 +268,93 @@ export function PlayerBoard() {
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 8,
+        distance: 3,
       },
     })
   );
 
   const handleDragStart = (event: DragStartEvent) => {
     const { active } = event;
-    const player = hydratedPlayers.find(p => p.id === active.id);
-    if (player) setActivePlayer(player);
+    const player = hydratedPlayers.find(p => String(p.id) === String(active.id));
+    setActivePlayer(player || null);
+    setIsDraggingGlobal(true);
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     setActivePlayer(null);
-
+    setIsDraggingGlobal(false);
     if (!over || !activeSession || !activeUser) return;
-
-    const activeId = active.id as string;
-    const overId = over.id as string;
-
-    const activePlayer = hydratedPlayers.find(p => p.id === activeId);
+    const activeId = String(active.id);
+    const overId = String(over.id);
+    const activePlayer = hydratedPlayers.find(p => String(p.id) === activeId);
     if (!activePlayer) return;
+    const overPlayer = hydratedPlayers.find(p => String(p.id) === overId);
+    const overFieldId = String(overPlayer ? overPlayer.fieldId : overId);
+    const overField = activeDivisionFields.find(f => String(f.id) === overFieldId);
+    if (!overField) return;
 
-    const overPlayer = hydratedPlayers.find(p => p.id === overId);
-    const overTeamId = overPlayer ? overPlayer.teamId : overId;
-    const overTeam = activeDivisionTeams.find(t => t.id === overTeamId);
-
-    if (!overTeam) return;
-
-    // Authorization Check for Coaches
-    if (activeUser.role === 'coach') {
-      if (activePlayer.teamId !== activeUser.assignedTeamId && overTeamId !== activeUser.assignedTeamId) {
-        alert("You only have permission to move players into or out of your assigned team.");
-        return;
-      }
+    if (overField.filterBy !== 'all' && activePlayer.position !== overField.filterBy) {
+      updateFields(prev => prev.map(f => String(f.id) === String(overField.id) ? { ...f, filterBy: 'all' } : f));
     }
 
-    // Auto-clear filter on mismatch
-    if (overTeam.filterBy !== 'all' && activePlayer.position !== overTeam.filterBy) {
-      updateTeams(prev => prev.map(t => t.id === overTeam.id ? { ...t, filterBy: 'all' } : t));
-    }
-
-    if (activePlayer.teamId !== overTeamId) {
+    if (activePlayer.fieldId !== overFieldId) {
       updateSessionPlayers((prev) => {
-        const activeIndex = prev.findIndex(p => p.id === activeId);
         const newPlayers = [...prev];
-        const [movedPlayer] = newPlayers.splice(activeIndex, 1);
-        movedPlayer.teamId = overTeamId;
-        
-        if (overTeam.sortBy === 'manual' && overPlayer) {
-          const overIndexMaster = newPlayers.findIndex(p => p.id === overId);
-          const isBelowOverItem = over && active.rect.current.translated && active.rect.current.translated.top > over.rect.top + over.rect.height;
-          const modifier = isBelowOverItem ? 1 : 0;
-          newPlayers.splice(overIndexMaster + modifier, 0, movedPlayer);
+        const activeIdx = newPlayers.findIndex(p => p.id === activeId);
+        if (activeIdx === -1) return prev;
+
+        // Update the field
+        newPlayers[activeIdx] = { ...newPlayers[activeIdx], fieldId: overFieldId };
+
+        // Recalculate ranks for the target field
+        const targetFieldPlayers = newPlayers.filter(p => p.fieldId === overFieldId);
+        // If dropping on a player, insert at that rank, otherwise put at end
+        if (overPlayer) {
+          const overIdxInField = targetFieldPlayers.findIndex(p => p.id === overId);
+          // Reorder the target field players
+          const otherFieldPlayers = targetFieldPlayers.filter(p => p.id !== activeId);
+          otherFieldPlayers.splice(overIdxInField, 0, newPlayers[activeIdx]);
+          // Assign new ranks based on position
+          otherFieldPlayers.forEach((p, idx) => {
+            const globalIdx = newPlayers.findIndex(np => np.id === p.id);
+            if (globalIdx !== -1) newPlayers[globalIdx].rank = idx + 1;
+          });
         } else {
-          newPlayers.push(movedPlayer);
+          // Put at end of target field
+          newPlayers[activeIdx].rank = targetFieldPlayers.length;
         }
+        
         return newPlayers;
       });
     } else if (activeId !== overId) {
-      if (overTeam.sortBy === 'manual') {
-        updateSessionPlayers((prev) => {
-          const activeIndex = prev.findIndex(p => p.id === activeId);
-          const overIndex = prev.findIndex(p => p.id === overId);
-          return arrayMove(prev, activeIndex, overIndex);
-        });
-      }
+      // Reordering within the same field
+      updateSessionPlayers((prev) => {
+        const newPlayers = [...prev];
+        const fieldPlayers = newPlayers.filter(p => p.fieldId === overFieldId);
+        const oldIdx = fieldPlayers.findIndex(p => p.id === activeId);
+        const newIdx = fieldPlayers.findIndex(p => p.id === overId);
+        
+        if (oldIdx !== -1 && newIdx !== -1) {
+          const reordered = arrayMove(fieldPlayers, oldIdx, newIdx);
+          reordered.forEach((p, idx) => {
+            const globalIdx = newPlayers.findIndex(np => np.id === p.id);
+            if (globalIdx !== -1) newPlayers[globalIdx].rank = idx + 1;
+          });
+        }
+        return newPlayers;
+      });
     }
   };
 
   const handleStatusChange = (id: string, status: PlayerStatus) => {
-    updateSessionPlayers(prev => prev.map(p => p.id === id ? { ...p, status } : p));
+    setAppData(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        globalPlayers: prev.globalPlayers.map(gp => gp.id === id ? { ...gp, status } : gp)
+      };
+    });
   };
   
   const handleAttendanceChange = (id: string, attendance: PlayerAttendance) => {
@@ -322,90 +378,113 @@ export function PlayerBoard() {
     }));
   };
   
-  const handleTeamNameChange = (id: string, name: string) => {
-    updateTeams(prev => prev.map(t => t.id === id ? { ...t, name } : t));
+  const handleFieldNameChange = (id: string, name: string) => {
+    updateFields(prev => prev.map(f => f.id === id ? { ...f, name } : f));
   };
   const handleSortChange = (id: string, sortBy: SortOption) => {
-    updateTeams(prev => prev.map(t => t.id === id ? { ...t, sortBy } : t));
+    updateFields(prev => prev.map(f => {
+        if (f.id === id) {
+            // Toggle direction if clicking same sort
+            if (f.sortBy === sortBy) {
+                return { ...f, sortDirection: f.sortDirection === 'asc' ? 'desc' : 'asc' };
+            }
+            return { ...f, sortBy, sortDirection: 'asc' };
+        }
+        return f;
+    }));
   };
   const handleFilterChange = (id: string, filterBy: FilterOption) => {
-    updateTeams(prev => prev.map(t => t.id === id ? { ...t, filterBy } : t));
+    updateFields(prev => prev.map(f => f.id === id ? { ...f, filterBy } : f));
+  };
+  const handleRatingFilterChange = (id: string, ratingFilter: string) => {
+    updateFields(prev => prev.map(f => f.id === id ? { ...f, ratingFilter } : f));
   };
 
-  const handleAddTeam = () => {
-    const newTeamId = `team-${Date.now()}`;
-    updateTeams(prev => [...prev, {
-      id: newTeamId,
+  const handleAddField = () => {
+    const newFieldId = `field-${Date.now()}`;
+    updateFields(prev => [...prev, {
+      id: newFieldId,
       divisionId: activeDivisionId,
-      name: `Team ${prev.filter(t => t.divisionId === activeDivisionId).length}`,
+      name: `Field ${prev.filter(f => f.divisionId === activeDivisionId).length + 1}`,
       sortBy: 'name',
-      filterBy: 'all'
+      sortDirection: 'asc',
+      filterBy: 'all',
+      ratingFilter: 'all'
     }]);
+    
+    // Explicitly trigger a fingerprint change to force a sync
+    setTimeout(() => setAppData(prev => prev ? {...prev} : prev), 0);
   };
 
-  const handleDeleteTeam = (id: string) => {
-    const unassignedTeam = activeDivisionTeams.find(t => t.name.includes('Unassigned') || t.id.includes('unassigned'));
-    const unassignedId = unassignedTeam ? unassignedTeam.id : `unassigned-${activeDivisionId}`;
-    updateSessionPlayers(prev => prev.map(p => p.teamId === id ? { ...p, teamId: unassignedId } : p));
-    updateTeams(prev => prev.filter(t => t.id !== id));
+  const handleDeleteField = (id: string) => {
+    const unassignedField = activeDivisionFields.find(f => f.name.includes('Unassigned') || f.id.includes('unassigned'));
+    const unassignedId = unassignedField ? unassignedField.id : `unassigned-${activeDivisionId}-${activeSessionId}`;
+    updateSessionPlayers(prev => prev.map(p => String(p.fieldId) === String(id) ? { ...p, fieldId: unassignedId } : p));
+    updateFields(prev => prev.filter(f => String(f.id) !== String(id)));
+  };
+
+  const handleResetField = (id: string) => {
+    const unassignedField = activeDivisionFields.find(f => f.name.includes('Unassigned') || f.id.includes('unassigned'));
+    const unassignedId = unassignedField ? unassignedField.id : `unassigned-${activeDivisionId}-${activeSessionId}`;
+    updateSessionPlayers(prev => prev.map(p => String(p.fieldId) === String(id) ? { ...p, fieldId: unassignedId } : p));
   };
 
   const handleCreateSession = () => {
     if (!newSessionName.trim() || !appData || !activeEvent) return;
-    
-    let clonedTeams: TeamConfig[];
+    let clonedFields: FieldConfig[];
     let clonedSessionPlayers: EventPlayer[];
-
+    
     if (cloneSessionId !== 'none') {
       const sourceSession = appData.sessions.find(s => s.id === cloneSessionId);
       if (sourceSession) {
-        clonedTeams = JSON.parse(JSON.stringify(sourceSession.teams));
-        clonedSessionPlayers = JSON.parse(JSON.stringify(sourceSession.sessionPlayers));
-      } else {
-        return;
-      }
-    } else {
-      // Create empty boilerplate for ALL divisions in this event
-      clonedTeams = [];
-      clonedSessionPlayers = [];
-      
-      activeEvent.divisionIds.forEach(divId => {
-        clonedTeams.push(
-          { id: `unassigned-${divId}`, divisionId: divId, name: 'Unassigned Pool', sortBy: 'rating', filterBy: 'all' },
-          { id: `team-1-${divId}`, divisionId: divId, name: 'Team 1', sortBy: 'name', filterBy: 'all' }
-        );
+        // Deep clone the session data
+        const rawFields = JSON.parse(JSON.stringify(sourceSession.fields)) as FieldConfig[];
+        const rawPlayers = JSON.parse(JSON.stringify(sourceSession.sessionPlayers)) as EventPlayer[];
         
+        // Reset field IDs to temporary IDs so they get inserted as new records in DB
+        const fieldMapping: { [key: string]: string } = {};
+        clonedFields = rawFields.map(f => {
+            if (f.id.includes('unassigned')) return f;
+            const newTempId = `field-cloned-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+            fieldMapping[f.id] = newTempId;
+            return { ...f, id: newTempId };
+        });
+
+        // Update player assignments to point to new temporary field IDs
+        clonedSessionPlayers = rawPlayers.map(p => {
+            if (fieldMapping[p.fieldId]) {
+                return { ...p, fieldId: fieldMapping[p.fieldId] };
+            }
+            return p;
+        });
+      } else return;
+    } else {
+      clonedFields = [];
+      clonedSessionPlayers = [];
+      activeEvent.divisionIds.forEach(divId => {
+        clonedFields.push(
+          { id: `unassigned-${divId}`, divisionId: divId, name: 'Unassigned Pool', sortBy: 'rating', sortDirection: 'asc', filterBy: 'all', ratingFilter: 'all' },
+          { id: `field-1-${divId}`, divisionId: divId, name: 'Field 1', sortBy: 'name', sortDirection: 'asc', filterBy: 'all', ratingFilter: 'all' }
+        );
         const divPlayers = appData.globalPlayers.filter(gp => gp.divisionId === divId);
         divPlayers.forEach(gp => {
-          clonedSessionPlayers.push({
-            id: gp.id,
-            status: 'none',
-            attendance: 'present',
-            notes: [],
-            teamId: `unassigned-${divId}`
-          });
+          clonedSessionPlayers.push({ id: gp.id, status: 'none', attendance: 'present', notes: [], fieldId: `unassigned-${divId}` });
         });
       });
     }
-
     const newSession: Session = {
       id: `session-${Date.now()}`,
       eventId: activeEventId,
       name: newSessionName.trim(),
       date: new Date().toISOString().split('T')[0],
-      teams: clonedTeams,
+      fields: clonedFields,
       sessionPlayers: clonedSessionPlayers
     };
-
     setAppData(prev => prev ? { ...prev, sessions: [...prev.sessions, newSession] } : null);
     setActiveSessionId(newSession.id);
     setIsCreateSessionModalOpen(false);
     setNewSessionName('');
     setCloneSessionId('none');
-  };
-
-  const handleInviteAllTeam = (teamId: string) => {
-    updateSessionPlayers(prev => prev.map(p => p.teamId === teamId ? { ...p, status: 'invited' } : p));
   };
 
   if (!isMounted || !appData || !activeUser || isLoading) {
@@ -417,94 +496,43 @@ export function PlayerBoard() {
     );
   }
 
-  const unassignedTeam = activeDivisionTeams.find(t => t.name.includes('Unassigned') || t.id.includes('unassigned'));
-  const assignedTeams = activeDivisionTeams.filter(t => t.id !== unassignedTeam?.id);
+  const unassignedField = activeDivisionFields.find(f => f.name.includes('Unassigned') || f.id.includes('unassigned'));
+  const assignedFields = activeDivisionFields.filter(f => f.id !== unassignedField?.id);
 
   return (
     <div className="max-w-[1600px] mx-auto p-6 min-h-screen bg-gray-50/30">
-      
-      {/* Top Navigation & Selectors - ALWAYS VISIBLE */}
       <div className="mb-4 flex flex-col md:flex-row items-center justify-between bg-white p-3 rounded-xl shadow-sm border border-gray-100 gap-4">
-        
         <div className="flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-2">
-            <Shield className="text-gray-400" size={18} />
-            <select
-              value={activeUserId}
-              onChange={(e) => setActiveUserId(e.target.value)}
-              className="text-sm font-bold text-gray-700 bg-gray-100 outline-none border border-transparent focus:border-indigo-300 hover:bg-gray-200 px-3 py-1.5 rounded-lg cursor-pointer"
-            >
-              {appData.users.map(u => (
-                <option key={u.id} value={u.id}>As: {u.name}</option>
-              ))}
+          <div className="flex items-center gap-2"><Shield className="text-gray-400" size={18} />
+            <select value={activeUserId} onChange={(e) => setActiveUserId(e.target.value)} className="text-sm font-bold text-gray-700 bg-gray-100 outline-none border border-transparent focus:border-indigo-300 hover:bg-gray-200 px-3 py-1.5 rounded-lg cursor-pointer">
+              {appData.users.map(u => (<option key={u.id} value={u.id}>As: {u.name}</option>))}
             </select>
           </div>
-          
           <div className="w-px h-6 bg-gray-200 hidden sm:block"></div>
-          
-          <div className="flex items-center gap-2">
-            <Calendar className="text-gray-400" size={18} />
-            <select
-              value={activeSeasonId}
-              onChange={(e) => setActiveSeasonId(e.target.value)}
-              className="text-sm font-bold text-gray-700 bg-gray-100 outline-none border border-transparent focus:border-indigo-300 hover:bg-gray-200 px-3 py-1.5 rounded-lg cursor-pointer"
-            >
-              {appData.seasons.length === 0 && <option value="">No Seasons</option>}
-              {appData.seasons.map(s => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
+          <div className="flex items-center gap-2"><Calendar className="text-gray-400" size={18} />
+            <select value={activeSeasonId} onChange={(e) => setActiveSeasonId(e.target.value)} className="text-sm font-bold text-gray-700 bg-gray-100 outline-none border border-transparent focus:border-indigo-300 hover:bg-gray-200 px-3 py-1.5 rounded-lg cursor-pointer">
+              {appData.seasons.map(s => (<option key={s.id} value={s.id}>{s.name}</option>))}
             </select>
           </div>
-
-          <div className="flex items-center gap-2">
-            <Layers className="text-gray-400" size={18} />
-            <select
-              value={activeEventId}
-              onChange={(e) => setActiveEventId(e.target.value)}
-              className="text-sm font-bold text-gray-700 bg-gray-100 outline-none border border-transparent focus:border-indigo-300 hover:bg-gray-200 px-3 py-1.5 rounded-lg cursor-pointer max-w-[150px] truncate"
-            >
-              {seasonEvents.length === 0 ? <option value="">No Events</option> : null}
-              {seasonEvents.map(e => (
-                <option key={e.id} value={e.id}>{e.name}</option>
-              ))}
+          <div className="flex items-center gap-2"><Layers className="text-gray-400" size={18} />
+            <select value={activeEventId} onChange={(e) => setActiveEventId(e.target.value)} className="text-sm font-bold text-gray-700 bg-gray-100 outline-none border border-transparent focus:border-indigo-300 hover:bg-gray-200 px-3 py-1.5 rounded-lg cursor-pointer max-w-[150px] truncate">
+              {seasonEvents.map(e => (<option key={e.id} value={e.id}>{e.name}</option>))}
             </select>
           </div>
-
-          <div className="flex items-center gap-2 bg-indigo-50 px-3 py-1.5 rounded-lg">
-            <Settings2 className="text-indigo-600" size={18} />
-            <select
-              value={activeSessionId}
-              onChange={(e) => setActiveSessionId(e.target.value)}
-              className="text-sm font-bold text-indigo-900 bg-transparent outline-none cursor-pointer max-w-[150px] truncate"
-            >
-              {eventSessions.length === 0 ? <option value="">No Sessions</option> : null}
-              {eventSessions.map(s => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
+          <div className="flex items-center gap-2 bg-indigo-50 px-3 py-1.5 rounded-lg"><Settings2 className="text-indigo-600" size={18} />
+            <select value={activeSessionId} onChange={(e) => setActiveSessionId(e.target.value)} className="text-sm font-bold text-indigo-900 bg-transparent outline-none cursor-pointer max-w-[150px] truncate">
+              {eventSessions.map(s => (<option key={s.id} value={s.id}>{s.name}</option>))}
             </select>
           </div>
-
-          <div className="flex items-center gap-2">
-            <Map className="text-gray-400" size={18} />
-            <select
-              value={activeDivisionId}
-              onChange={(e) => setActiveDivisionId(e.target.value)}
-              className="text-sm font-bold text-gray-700 bg-gray-100 outline-none border border-transparent focus:border-indigo-300 hover:bg-gray-200 px-3 py-1.5 rounded-lg cursor-pointer"
-            >
-              {availableDivisions.length === 0 && <option value="">No Divisions</option>}
-              {availableDivisions.map(d => (
-                <option key={d.id} value={d.id}>{d.name}</option>
-              ))}
+          <div className="flex items-center gap-2"><Map className="text-gray-400" size={18} />
+            <select value={activeDivisionId} onChange={(e) => setActiveDivisionId(e.target.value)} className="text-sm font-bold text-gray-700 bg-gray-100 outline-none border border-transparent focus:border-indigo-300 hover:bg-gray-200 px-3 py-1.5 rounded-lg cursor-pointer">
+              {availableDivisions.map(d => (<option key={d.id} value={d.id}>{d.name}</option>))}
             </select>
           </div>
         </div>
-
         <div className="flex items-center gap-2">
           {activeEvent && (
-            <button 
-              onClick={() => setIsCreateSessionModalOpen(true)}
-              className="text-sm font-semibold text-indigo-600 hover:text-indigo-700 border border-indigo-200 hover:bg-indigo-50 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
-            >
+            <button onClick={() => setIsCreateSessionModalOpen(true)} className="text-sm font-semibold text-indigo-600 hover:text-indigo-700 border border-indigo-200 hover:bg-indigo-50 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap">
               + New Session
             </button>
           )}
@@ -513,24 +541,11 @@ export function PlayerBoard() {
 
       {!activeEvent || !activeSession ? (
         <div className="flex-1 bg-white rounded-3xl border border-dashed border-gray-200 shadow-sm flex flex-col items-center justify-center p-20 text-center space-y-4">
-          <div className="bg-indigo-50 text-indigo-600 p-6 rounded-full">
-            <Calendar size={48} />
-          </div>
+          <div className="bg-indigo-50 text-indigo-600 p-6 rounded-full"><Calendar size={48} /></div>
           <div className="max-w-md">
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">
-              {!activeEvent ? "No Events in this Season" : "No Sessions in this Event"}
-            </h2>
-            <p className="text-gray-500">
-              {!activeEvent 
-                ? "Go to the Admin panel to create events for your season, or select a different season above." 
-                : "This event doesn't have any sessions yet. Click the '+ New Session' button in the top right to start evaluations."}
-            </p>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">{!activeEvent ? "No Events in this Season" : "No Sessions in this Event"}</h2>
+            <p className="text-gray-500">{!activeEvent ? "Go to the Admin panel to create events for your season." : "This event doesn't have any sessions yet. Click the '+ New Session' button to start."}</p>
           </div>
-          {!activeEvent && (
-            <a href="/admin/events" className="mt-4 text-indigo-600 font-semibold hover:underline">
-              Go to Admin &rarr;
-            </a>
-          )}
         </div>
       ) : (
         <>
@@ -540,165 +555,151 @@ export function PlayerBoard() {
                 <UsersIcon className="text-indigo-600" size={28} />
                 {activeSession.name} - {availableDivisions.find(d => d.id === activeDivisionId)?.name}
               </h1>
-              <p className="text-gray-500 text-sm mt-1">
-                {activeUser.role === 'admin' 
-                  ? "Admin Mode: You can move players and edit any team." 
-                  : `Coach Mode: You can only manage your assigned team.`}
-              </p>
+              <p className="text-gray-500 text-sm mt-1">Evaluation Mode: Organize players on fields and record notes.</p>
             </div>
-            
             <div className="flex items-center gap-6">
               {activeUser.role === 'admin' && (
-                <button 
-                  onClick={handleAddTeam}
-                  className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm"
-                >
-                  <Plus size={16} /> Add Team
+                <button onClick={handleAddField} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm">
+                  <Plus size={16} /> Add Field
                 </button>
               )}
-
               <div className="w-px h-8 bg-gray-200"></div>
-
-              {/* App Mode Toggle */}
               <div className="flex items-center bg-gray-100 p-1 rounded-xl">
-                <button 
-                  onClick={() => setIsTryoutMode(false)}
-                  className={cn(
-                    "px-4 py-2 rounded-lg text-sm font-semibold transition-all",
-                    !isTryoutMode ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
-                  )}
-                >
-                  Groups
-                </button>
-                <button 
-                  onClick={() => setIsTryoutMode(true)}
-                  className={cn(
-                    "px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5",
-                    isTryoutMode ? "bg-indigo-600 text-white shadow-sm" : "text-gray-500 hover:text-gray-700"
-                  )}
-                >
-                  <Settings2 size={16} /> Tryouts
-                </button>
-              </div>
-
-              <div className="w-px h-8 bg-gray-200"></div>
-
-              {/* Layout Mode Toggle */}
-              <div className="flex items-center gap-2">
-                <button 
-                  onClick={() => setViewMode('table')}
-                  className={cn(
-                    "p-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-semibold",
-                    viewMode === 'table' ? "bg-indigo-50 text-indigo-700" : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
-                  )}
-                >
-                  <List size={20} /> List
-                </button>
-                <button 
-                  onClick={() => setViewMode('kanban')}
-                  className={cn(
-                    "p-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-semibold",
-                    viewMode === 'kanban' ? "bg-indigo-50 text-indigo-700" : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
-                  )}
-                >
-                  <LayoutGrid size={20} /> Board
-                </button>
+                <button onClick={() => setViewMode('table')} className={cn("px-4 py-2 rounded-lg text-sm font-semibold transition-all", viewMode === 'table' ? "bg-white text-gray-900 shadow-sm" : "text-gray-500")}>List</button>
+                <button onClick={() => setViewMode('kanban')} className={cn("px-4 py-2 rounded-lg text-sm font-semibold transition-all", viewMode === 'kanban' ? "bg-white text-gray-900 shadow-sm" : "text-gray-500")}>Fields</button>
               </div>
             </div>
           </div>
 
-          <DndContext 
-            sensors={sensors}
-            collisionDetection={closestCorners}
-            onDragStart={handleDragStart}
-            onDragEnd={handleDragEnd}
-          >
-            <div className="flex flex-col xl:flex-row gap-8 h-[calc(100vh-280px)]">
-              {/* Left Sidebar: Unassigned Pool */}
-              {unassignedTeam && (
-                <div className="w-full xl:w-[400px] flex-shrink-0 h-[500px] xl:h-full">
-                  <TeamSection 
-                    team={unassignedTeam} 
-                    players={getProcessedPlayers(hydratedPlayers, unassignedTeam)} 
-                    isTryoutMode={isTryoutMode}
-                    viewMode="kanban"
-                    isSidebar={true}
-                    onStatusChange={handleStatusChange}
-                    onAttendanceChange={handleAttendanceChange}
-                    onTeamNameChange={handleTeamNameChange}
-                    onSortChange={handleSortChange}
-                    onFilterChange={handleFilterChange}
-                    onDeleteTeam={activeUser.role === 'admin' ? handleDeleteTeam : undefined}
-                    onInviteAllTeam={activeUser.role === 'admin' || activeUser.assignedTeamId === unassignedTeam.id ? handleInviteAllTeam : undefined}
-                    onViewDetails={(p) => setSelectedPlayerForDetails(p)}
-                    activeUserId={activeUserId}
-                  />
-                </div>
-              )}
-
-              {/* Right Main Area: Assigned Teams */}
-              <div className={cn(
-                "flex-1 bg-white rounded-3xl border border-gray-100 shadow-sm custom-scrollbar",
-                viewMode === 'kanban' 
-                  ? "flex gap-6 items-start h-full overflow-x-auto overflow-y-hidden p-6" 
-                  : "h-full overflow-y-auto p-8"
-              )}>
-                {viewMode === 'table' ? (
-                  <div className="max-w-4xl mx-auto">
-                    {assignedTeams.map(team => (
-                      <TeamSection 
-                        key={team.id} 
-                        team={team} 
-                        players={getProcessedPlayers(hydratedPlayers, team)} 
-                        isTryoutMode={isTryoutMode}
-                        viewMode={viewMode}
-                        onStatusChange={handleStatusChange}
-                        onAttendanceChange={handleAttendanceChange}
-                        onTeamNameChange={handleTeamNameChange}
-                        onSortChange={handleSortChange}
-                        onFilterChange={handleFilterChange}
-                        onDeleteTeam={activeUser.role === 'admin' ? handleDeleteTeam : undefined}
-                        onInviteAllTeam={activeUser.role === 'admin' || activeUser.assignedTeamId === team.id ? handleInviteAllTeam : undefined}
-                        onViewDetails={(p) => setSelectedPlayerForDetails(p)}
-                        activeUserId={activeUserId}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  assignedTeams.map(team => (
+          <DndContext sensors={sensors} collisionDetection={rectIntersection} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+            <div className="flex flex-col xl:flex-row gap-6 h-[calc(100vh-280px)] overflow-hidden">
+              {/* Unassigned Pool Sidebar */}
+              <div className="w-full xl:w-[350px] flex-shrink-0 h-full flex flex-col bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="flex-1 overflow-y-auto">
+                  {unassignedField ? (
                     <TeamSection 
-                      key={team.id} 
-                      team={team} 
-                      players={getProcessedPlayers(hydratedPlayers, team)} 
-                      isTryoutMode={isTryoutMode}
-                      viewMode={viewMode}
-                      onStatusChange={handleStatusChange}
+                      team={unassignedField} 
+                      players={getProcessedPlayers(hydratedPlayers, unassignedField)} 
+                      isTryoutMode={true} 
+                      viewMode="kanban" 
+                      isSidebar={true}
+                      isCompact={true}
+                      onStatusChange={handleStatusChange} 
                       onAttendanceChange={handleAttendanceChange}
-                      onTeamNameChange={handleTeamNameChange}
-                      onSortChange={handleSortChange}
+                      onTeamNameChange={handleFieldNameChange} 
+                      onSortChange={handleSortChange} 
                       onFilterChange={handleFilterChange}
-                      onDeleteTeam={activeUser.role === 'admin' ? handleDeleteTeam : undefined}
-                      onInviteAllTeam={activeUser.role === 'admin' || activeUser.assignedTeamId === team.id ? handleInviteAllTeam : undefined}
+                      onRatingFilterChange={handleRatingFilterChange}
+                      onDeleteTeam={undefined} 
+                      onResetField={handleResetField}
+                      activeUserId={activeUserId}
+                      onViewDetails={(p) => setSelectedPlayerForDetails(p)}
+                    />
+                  ) : (
+                    <div className="p-8 text-center text-gray-400 italic">No pool found for this division.</div>
+                  )}
+                </div>
+                
+                {/* Enhanced Batch Move Action */}
+                {assignedFields.length > 0 && unassignedField && (
+                  <div className="p-4 bg-indigo-50 border-t border-indigo-100">
+                    <div className="flex flex-col gap-3 mb-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <UsersIcon size={12} className="text-indigo-500" />
+                          <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Move:</span>
+                        </div>
+                        <div className="flex bg-white border border-indigo-100 rounded-lg p-0.5 shadow-sm">
+                          {['all', '10', '20', '30'].map((limit) => (
+                            <button
+                              key={limit}
+                              onClick={() => setBatchLimit(limit as any)}
+                              className={cn(
+                                "px-2 py-1 text-[9px] font-black rounded-md transition-all",
+                                batchLimit === limit 
+                                  ? "bg-indigo-600 text-white shadow-sm" 
+                                  : "text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50"
+                              )}
+                            >
+                              {limit.toUpperCase()}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <ArrowUpDown size={12} className="text-indigo-500" />
+                        <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">To Field:</span>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {assignedFields.map(f => (
+                        <button
+                          key={f.id}
+                          onClick={() => {
+                            const playersInPool = getProcessedPlayers(hydratedPlayers, unassignedField);
+                            const playersToMove = batchLimit === 'all' ? playersInPool : playersInPool.slice(0, parseInt(batchLimit));
+                            
+                            updateSessionPlayers(prev => prev.map(p => {
+                              const match = playersToMove.find(pm => pm.id === String(p.id));
+                              return match ? { ...p, fieldId: f.id } : p;
+                            }));
+                          }}
+                          className="flex-1 min-w-[80px] text-[10px] font-bold bg-white text-indigo-700 border border-indigo-200 hover:bg-indigo-600 hover:text-white hover:border-indigo-600 px-2 py-2 rounded-xl transition-all shadow-sm active:scale-95"
+                        >
+                          {f.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Main Fields Area */}
+              <div className={cn("flex-1 bg-gray-50/50 rounded-3xl border border-gray-100/50 p-6 overflow-auto custom-scrollbar")}>
+                <div className={cn("flex h-full min-w-full", viewMode === 'kanban' ? "flex-row gap-6 items-start" : "flex-col gap-6")}>
+                  {assignedFields.map(field => (
+                    <TeamSection 
+                      key={field.id} team={field} players={getProcessedPlayers(hydratedPlayers, field)} 
+                      isTryoutMode={true} viewMode={viewMode}
+                      isCompact={true}
+                      onStatusChange={handleStatusChange} onAttendanceChange={handleAttendanceChange}
+                      onTeamNameChange={handleFieldNameChange} onSortChange={handleSortChange} 
+                      onFilterChange={handleFilterChange}
+                      onRatingFilterChange={handleRatingFilterChange}
+                      onDeleteTeam={handleDeleteField}
+                      onResetField={handleResetField}
                       onViewDetails={(p) => setSelectedPlayerForDetails(p)}
                       activeUserId={activeUserId}
                     />
-                  ))
-                )}
+                  ))}
+
+                  {/* Highly Visible Add Field Button - Always at the end or in middle if empty */}
+                  {viewMode === 'kanban' && (
+                    <button
+                      onClick={handleAddField}
+                      className={cn(
+                        "flex-shrink-0 border-2 border-dashed border-gray-300 rounded-3xl flex flex-col items-center justify-center gap-4 text-gray-400 hover:text-indigo-600 hover:border-indigo-300 hover:bg-white hover:shadow-xl transition-all group",
+                        assignedFields.length === 0 ? "w-full h-full max-h-[400px]" : "w-[300px] h-[250px]"
+                      )}
+                    >
+                      <div className="w-16 h-16 rounded-full bg-gray-100 group-hover:bg-indigo-50 flex items-center justify-center transition-colors">
+                        <Plus size={32} />
+                      </div>
+                      <div className="text-center">
+                        <span className="block font-black text-xs uppercase tracking-widest opacity-60 mb-1">Step 1: Create a Field</span>
+                        <span className="block font-bold text-lg tracking-tight">Add Evaluation Group</span>
+                        <p className="text-xs text-gray-400 mt-2 max-w-[200px] mx-auto">Create fields to begin sorting players from the unassigned pool.</p>
+                      </div>
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
-
-            <DragOverlay>
-              {activePlayer ? (
-                <PlayerCard 
-                  player={activePlayer} 
-                  isTryoutMode={isTryoutMode} 
-                  viewMode={activePlayer.teamId.includes('unassigned') ? 'kanban' : viewMode} 
-                />
-              ) : null}
-            </DragOverlay>
+            <DragOverlay>{activePlayer ? <PlayerCard player={activePlayer} isTryoutMode={true} viewMode="kanban" /> : null}</DragOverlay>
           </DndContext>
         </>
       )}
+      {/* ... (Modals remain similar but updated with Field terminology) */}
 
       {/* Create Session Modal */}
       {isCreateSessionModalOpen && activeEvent && (
