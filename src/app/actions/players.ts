@@ -98,3 +98,36 @@ export async function uploadPlayers(players: UploadedPlayer[]) {
     connection.release();
   }
 }
+
+export async function getPlayers(seasonAgeGroupId?: string) {
+  const clubId = await getActiveClubId();
+  if (!clubId) return [];
+
+  const connection = await db.getConnection();
+  try {
+    let query = `
+      SELECT p.id, p.first_name, p.last_name, p.date_of_birth, p.gender, 
+             sp.tryout_number, sp.position, sp.rating, sp.season_age_group_id,
+             ag.name as age_group_name, sag.gender as division_gender
+      FROM players p
+      LEFT JOIN season_players sp ON p.id = sp.player_id
+      LEFT JOIN season_age_groups sag ON sp.season_age_group_id = sag.id
+      LEFT JOIN age_groups ag ON sag.age_group_id = ag.id
+      WHERE p.club_id = ?
+    `;
+    
+    const params: any[] = [clubId];
+
+    if (seasonAgeGroupId) {
+      query += ` AND sp.season_age_group_id = ?`;
+      params.push(parseInt(seasonAgeGroupId));
+    }
+
+    query += ` ORDER BY p.last_name, p.first_name`;
+
+    const [rows]: any = await connection.query(query, params);
+    return rows;
+  } finally {
+    connection.release();
+  }
+}

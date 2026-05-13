@@ -3,11 +3,16 @@
 import db from "@/lib/db";
 import { AppData, User, Season, Division, GlobalPlayer, AppEvent, Session, TeamConfig, EventPlayer, CoachNote } from "@/lib/mockData";
 
+import { getActiveClubId } from "./clubs";
+
 export async function fetchAppData(): Promise<AppData> {
+  const clubId = await getActiveClubId();
+  if (!clubId) throw new Error("No active club context found");
+
   const connection = await db.getConnection();
   
   try {
-    const [dbUsers]: any = await connection.query(`SELECT id, name, role, assigned_team_id FROM users`);
+    const [dbUsers]: any = await connection.query(`SELECT id, name, role, assigned_team_id FROM users WHERE club_id = ? OR role = 'system_admin'`, [clubId]);
     const users: User[] = dbUsers.map((u: any) => ({
       id: String(u.id),
       name: u.name,
@@ -15,14 +20,21 @@ export async function fetchAppData(): Promise<AppData> {
       assignedTeamId: u.assigned_team_id ? String(u.assigned_team_id) : undefined
     }));
 
-    const [dbSeasons]: any = await connection.query(`SELECT id, name FROM seasons`);
+    const [dbSeasons]: any = await connection.query(`
+      SELECT s.id, s.name 
+      FROM seasons s
+      JOIN club_seasons cs ON s.id = cs.season_id
+      WHERE cs.club_id = ?
+    `, [clubId]);
     const seasons: Season[] = dbSeasons.map((s: any) => ({ id: String(s.id), name: s.name }));
 
     const [dbDivisions]: any = await connection.query(`
       SELECT sag.id, sag.season_id, ag.name, sag.gender 
       FROM season_age_groups sag 
       JOIN age_groups ag ON sag.age_group_id = ag.id
-    `);
+      JOIN club_seasons cs ON sag.season_id = cs.season_id
+      WHERE cs.club_id = ?
+    `, [clubId]);
     const divisions: Division[] = dbDivisions.map((d: any) => ({
       id: String(d.id),
       seasonId: String(d.season_id),
@@ -33,7 +45,8 @@ export async function fetchAppData(): Promise<AppData> {
       SELECT p.id, sp.season_age_group_id, p.first_name, p.last_name, sp.tryout_number, sp.position, sp.rating 
       FROM players p 
       JOIN season_players sp ON p.id = sp.player_id
-    `);
+      WHERE p.club_id = ?
+    `, [clubId]);
     const globalPlayers: GlobalPlayer[] = dbGlobalPlayers.map((gp: any) => ({
       id: String(gp.id),
       divisionId: String(gp.season_age_group_id),
@@ -43,8 +56,19 @@ export async function fetchAppData(): Promise<AppData> {
       rating: gp.rating || 0
     }));
 
-    const [dbEvents]: any = await connection.query(`SELECT id, season_id, name, event_type FROM events`);
-    const [dbEventDivisions]: any = await connection.query(`SELECT event_id, season_age_group_id FROM event_divisions`);
+    const [dbEvents]: any = await connection.query(`
+      SELECT e.id, e.season_id, e.name, e.event_type 
+      FROM events e
+      JOIN club_seasons cs ON e.season_id = cs.season_id
+      WHERE cs.club_id = ?
+    `, [clubId]);
+    const [dbEventDivisions]: any = await connection.query(`
+      SELECT ed.event_id, ed.season_age_group_id 
+      FROM event_divisions ed
+      JOIN events e ON ed.event_id = e.id
+      JOIN club_seasons cs ON e.season_id = cs.season_id
+      WHERE cs.club_id = ?
+    `, [clubId]);
     
     const events: AppEvent[] = dbEvents.map((e: any) => {
       const divIds = dbEventDivisions.filter((ed: any) => ed.event_id === e.id).map((ed: any) => String(ed.season_age_group_id));
@@ -57,7 +81,7 @@ export async function fetchAppData(): Promise<AppData> {
       };
     });
 
-    const [dbTeams]: any = await connection.query(`SELECT id, season_age_group_id, name, sort_by, filter_by FROM teams`);
+    const [dbTeams]: any = await connection.query(`SELECT id, season_age_group_id, name, sort_by, filter_by FROM teams WHERE club_id = ?`, [clubId]);
     const teamsList: TeamConfig[] = dbTeams.map((t: any) => ({
       id: String(t.id),
       divisionId: String(t.season_age_group_id),
@@ -66,7 +90,12 @@ export async function fetchAppData(): Promise<AppData> {
       filterBy: t.filter_by as any
     }));
 
-    const [dbCoachNotes]: any = await connection.query(`SELECT id, coach_id, session_id, event_id, player_id, note_text, UNIX_TIMESTAMP(created_at) * 1000 as ts FROM coach_notes`);
+    const [dbCoachNotes]: any = await connection.query(`
+      SELECT cn.id, cn.coach_id, cn.session_id, cn.event_id, cn.player_id, cn.note_text, UNIX_TIMESTAMP(cn.created_at) * 1000 as ts 
+      FROM coach_notes cn
+      JOIN players p ON cn.player_id = p.id
+      WHERE p.club_id = ?
+    `, [clubId]);
     const coachNotes = dbCoachNotes.map((cn: any) => ({
       id: String(cn.id),
       coachId: String(cn.coach_id),
@@ -77,8 +106,19 @@ export async function fetchAppData(): Promise<AppData> {
       timestamp: cn.ts
     }));
 
-    const [dbSessions]: any = await connection.query(`SELECT id, event_id, name, session_date FROM sessions`);
-    const [dbSessionPlayers]: any = await connection.query(`SELECT id, session_id, player_id, team_id, attendance_status, player_status FROM session_players`);
+    const [dbSessions]: any = await connection.query(`
+      SELECT s.id, s.event_id, s.name, s.session_date 
+      FROM sessions s
+      JOIN events e ON s.event_id = e.id
+      JOIN club_seasons cs ON e.season_id = cs.season_id
+      WHERE cs.club_id = ?
+    `, [clubId]);
+    const [dbSessionPlayers]: any = await connection.query(`
+      SELECT sp.id, sp.session_id, sp.player_id, sp.team_id, sp.attendance_status, sp.player_status 
+      FROM session_players sp
+      JOIN players p ON sp.player_id = p.id
+      WHERE p.club_id = ?
+    `, [clubId]);
 
     const sessions: Session[] = dbSessions.map((s: any) => {
       const sessionIdStr = String(s.id);
@@ -100,12 +140,10 @@ export async function fetchAppData(): Promise<AppData> {
           status: sp.player_status as any,
           attendance: sp.attendance_status as any,
           notes: playerNotes,
-          teamId: sp.team_id ? String(sp.team_id) : 'unassigned' // or map to unassigned-divId if needed
+          teamId: sp.team_id ? String(sp.team_id) : 'unassigned'
         };
       });
 
-      // Filter teams to only those relevant for this event's divisions?
-      // For simplicity, just provide all teams, or those matching the event's divisions.
       const event = events.find(e => e.id === String(s.event_id));
       let sessionTeams = teamsList;
       if (event) {
@@ -117,7 +155,7 @@ export async function fetchAppData(): Promise<AppData> {
         eventId: String(s.event_id),
         name: s.name,
         date: s.session_date ? s.session_date.toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-        teams: sessionTeams, // in DB teams are global to age group, so we reuse them
+        teams: sessionTeams,
         sessionPlayers: sessionPlayers
       };
     });

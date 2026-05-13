@@ -31,7 +31,7 @@ import {
 import { fetchAppData, syncAppData } from '@/app/actions/dbSync';
 import { TeamSection } from './TeamSection';
 import { PlayerCard } from './PlayerCard';
-import { LayoutGrid, List, Settings2, Users as UsersIcon, Plus, Calendar, Shield, Map, Layers } from 'lucide-react';
+import { LayoutGrid, List, Settings2, Users as UsersIcon, Plus, Calendar, Shield, Map, Layers, Loader2 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -83,6 +83,7 @@ export function PlayerBoard() {
   const [activeUserId, setActiveUserId] = useState<string>('');
   
   const [isMounted, setIsMounted] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
   const [isTryoutMode, setIsTryoutMode] = useState(false);
   const [activePlayer, setActivePlayer] = useState<Player | null>(null);
@@ -95,31 +96,31 @@ export function PlayerBoard() {
 
   useEffect(() => {
     async function loadData() {
+      setIsLoading(true);
       try {
-        if (process.env.NODE_ENV !== 'development') {
-          const dbData = await fetchAppData();
-          setAppData(dbData);
-          setDefaults(dbData);
-        } else {
-          const data = loadAppData();
-          setAppData(data);
-          setDefaults(data);
-        }
+        // ALWAYS use database to stay in sync with Admin panel
+        const dbData = await fetchAppData();
+        setAppData(dbData);
+        setDefaults(dbData);
       } catch (err) {
-        console.error("Failed to load app data:", err);
-        // Fallback to local
+        console.error("Failed to load app data from database:", err);
+        // Fallback to local only if DB fails completely
         const data = loadAppData();
         setAppData(data);
         setDefaults(data);
+      } finally {
+        setIsLoading(false);
+        setIsMounted(true);
       }
-      setIsMounted(true);
     }
     
     function setDefaults(data: AppData) {
+      if (!data) return;
+
       const initialSeason = data.seasons[0]?.id || '';
       setActiveSeasonId(initialSeason);
       
-      const initialEvents = data.events.filter(e => e.seasonId === initialSeason && e.type === 'tryout');
+      const initialEvents = data.events.filter(e => e.seasonId === initialSeason);
       const initialEvent = initialEvents[0]?.id || '';
       setActiveEventId(initialEvent);
 
@@ -142,19 +143,16 @@ export function PlayerBoard() {
 
   useEffect(() => {
     if (appData && isMounted) {
-      if (process.env.NODE_ENV !== 'development') {
-        // Sync to DB in background
-        syncAppData(appData).catch(err => console.error("Failed to sync to DB:", err));
-      } else {
-        saveAppData(appData);
-      }
+      // Sync to DB in background
+      syncAppData(appData).catch(err => console.error("Failed to sync to DB:", err));
+      saveAppData(appData); // also save to local for speed/backup
     }
   }, [appData, isMounted]);
 
   const activeUser = useMemo(() => appData?.users.find(u => u.id === activeUserId), [appData, activeUserId]);
   
   // Cascading derivations
-  const seasonEvents = useMemo(() => appData?.events.filter(e => e.seasonId === activeSeasonId && e.type === 'tryout') || [], [appData, activeSeasonId]);
+  const seasonEvents = useMemo(() => appData?.events.filter(e => e.seasonId === activeSeasonId) || [], [appData, activeSeasonId]);
   const activeEvent = useMemo(() => seasonEvents.find(e => e.id === activeEventId), [seasonEvents, activeEventId]);
   
   const eventSessions = useMemo(() => appData?.sessions.filter(s => s.eventId === activeEventId) || [], [appData, activeEventId]);
@@ -168,7 +166,7 @@ export function PlayerBoard() {
   // Handle cascading default updates when parents change
   useEffect(() => {
     if (isMounted && activeSeasonId && appData) {
-      const events = appData.events.filter(e => e.seasonId === activeSeasonId && e.type === 'tryout');
+      const events = appData.events.filter(e => e.seasonId === activeSeasonId);
       if (!events.some(e => e.id === activeEventId)) {
         setActiveEventId(events[0]?.id || '');
       }
@@ -410,15 +408,11 @@ export function PlayerBoard() {
     updateSessionPlayers(prev => prev.map(p => p.teamId === teamId ? { ...p, status: 'invited' } : p));
   };
 
-  if (!isMounted || !appData || !activeUser) {
-    return <div className="min-h-screen bg-gray-50/30 flex items-center justify-center text-gray-500">Loading...</div>;
-  }
-
-  if (!activeEvent || !activeSession) {
+  if (!isMounted || !appData || !activeUser || isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50/30 flex flex-col items-center justify-center text-gray-500">
-        <h2 className="text-xl font-bold text-gray-800 mb-2">No Tryout Events Found</h2>
-        <p>Please create a tryout event to begin.</p>
+      <div className="min-h-screen bg-gray-50/30 flex flex-col items-center justify-center text-gray-500 gap-4">
+        <Loader2 className="animate-spin text-indigo-600" size={48} />
+        <p className="font-medium animate-pulse">Syncing with database...</p>
       </div>
     );
   }
@@ -429,7 +423,7 @@ export function PlayerBoard() {
   return (
     <div className="max-w-[1600px] mx-auto p-6 min-h-screen bg-gray-50/30">
       
-      {/* Top Navigation & Selectors */}
+      {/* Top Navigation & Selectors - ALWAYS VISIBLE */}
       <div className="mb-4 flex flex-col md:flex-row items-center justify-between bg-white p-3 rounded-xl shadow-sm border border-gray-100 gap-4">
         
         <div className="flex flex-wrap items-center gap-4">
@@ -455,6 +449,7 @@ export function PlayerBoard() {
               onChange={(e) => setActiveSeasonId(e.target.value)}
               className="text-sm font-bold text-gray-700 bg-gray-100 outline-none border border-transparent focus:border-indigo-300 hover:bg-gray-200 px-3 py-1.5 rounded-lg cursor-pointer"
             >
+              {appData.seasons.length === 0 && <option value="">No Seasons</option>}
               {appData.seasons.map(s => (
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
@@ -496,6 +491,7 @@ export function PlayerBoard() {
               onChange={(e) => setActiveDivisionId(e.target.value)}
               className="text-sm font-bold text-gray-700 bg-gray-100 outline-none border border-transparent focus:border-indigo-300 hover:bg-gray-200 px-3 py-1.5 rounded-lg cursor-pointer"
             >
+              {availableDivisions.length === 0 && <option value="">No Divisions</option>}
               {availableDivisions.map(d => (
                 <option key={d.id} value={d.id}>{d.name}</option>
               ))}
@@ -504,181 +500,208 @@ export function PlayerBoard() {
         </div>
 
         <div className="flex items-center gap-2">
-          <button 
-            onClick={() => setIsCreateSessionModalOpen(true)}
-            className="text-sm font-semibold text-indigo-600 hover:text-indigo-700 border border-indigo-200 hover:bg-indigo-50 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
-          >
-            + New Session
-          </button>
-        </div>
-      </div>
-
-      <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-        <div>
-          <h1 className="text-2xl font-black text-gray-900 tracking-tight flex items-center gap-2">
-            <UsersIcon className="text-indigo-600" size={28} />
-            {activeSession.name} - {availableDivisions.find(d => d.id === activeDivisionId)?.name}
-          </h1>
-          <p className="text-gray-500 text-sm mt-1">
-            {activeUser.role === 'admin' 
-              ? "Admin Mode: You can move players and edit any team." 
-              : `Coach Mode: You can only manage your assigned team.`}
-          </p>
-        </div>
-        
-        <div className="flex items-center gap-6">
-          {activeUser.role === 'admin' && (
+          {activeEvent && (
             <button 
-              onClick={handleAddTeam}
-              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm"
+              onClick={() => setIsCreateSessionModalOpen(true)}
+              className="text-sm font-semibold text-indigo-600 hover:text-indigo-700 border border-indigo-200 hover:bg-indigo-50 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
             >
-              <Plus size={16} /> Add Team
+              + New Session
             </button>
           )}
-
-          <div className="w-px h-8 bg-gray-200"></div>
-
-          {/* App Mode Toggle */}
-          <div className="flex items-center bg-gray-100 p-1 rounded-xl">
-            <button 
-              onClick={() => setIsTryoutMode(false)}
-              className={cn(
-                "px-4 py-2 rounded-lg text-sm font-semibold transition-all",
-                !isTryoutMode ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
-              )}
-            >
-              Groups
-            </button>
-            <button 
-              onClick={() => setIsTryoutMode(true)}
-              className={cn(
-                "px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5",
-                isTryoutMode ? "bg-indigo-600 text-white shadow-sm" : "text-gray-500 hover:text-gray-700"
-              )}
-            >
-              <Settings2 size={16} /> Tryouts
-            </button>
-          </div>
-
-          <div className="w-px h-8 bg-gray-200"></div>
-
-          {/* Layout Mode Toggle */}
-          <div className="flex items-center gap-2">
-            <button 
-              onClick={() => setViewMode('table')}
-              className={cn(
-                "p-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-semibold",
-                viewMode === 'table' ? "bg-indigo-50 text-indigo-700" : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
-              )}
-            >
-              <List size={20} /> List
-            </button>
-            <button 
-              onClick={() => setViewMode('kanban')}
-              className={cn(
-                "p-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-semibold",
-                viewMode === 'kanban' ? "bg-indigo-50 text-indigo-700" : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
-              )}
-            >
-              <LayoutGrid size={20} /> Board
-            </button>
-          </div>
         </div>
       </div>
 
-      <DndContext 
-        sensors={sensors}
-        collisionDetection={closestCorners}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-      >
-        <div className="flex flex-col xl:flex-row gap-8 h-[calc(100vh-280px)]">
-          {/* Left Sidebar: Unassigned Pool */}
-          {unassignedTeam && (
-            <div className="w-full xl:w-[400px] flex-shrink-0 h-[500px] xl:h-full">
-              <TeamSection 
-                team={unassignedTeam} 
-                players={getProcessedPlayers(hydratedPlayers, unassignedTeam)} 
-                isTryoutMode={isTryoutMode}
-                viewMode="kanban"
-                isSidebar={true}
-                onStatusChange={handleStatusChange}
-                onAttendanceChange={handleAttendanceChange}
-                onTeamNameChange={handleTeamNameChange}
-                onSortChange={handleSortChange}
-                onFilterChange={handleFilterChange}
-                onDeleteTeam={activeUser.role === 'admin' ? handleDeleteTeam : undefined}
-                onInviteAllTeam={activeUser.role === 'admin' || activeUser.assignedTeamId === unassignedTeam.id ? handleInviteAllTeam : undefined}
-                onViewDetails={(p) => setSelectedPlayerForDetails(p)}
-                activeUserId={activeUserId}
-              />
+      {!activeEvent || !activeSession ? (
+        <div className="flex-1 bg-white rounded-3xl border border-dashed border-gray-200 shadow-sm flex flex-col items-center justify-center p-20 text-center space-y-4">
+          <div className="bg-indigo-50 text-indigo-600 p-6 rounded-full">
+            <Calendar size={48} />
+          </div>
+          <div className="max-w-md">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">
+              {!activeEvent ? "No Events in this Season" : "No Sessions in this Event"}
+            </h2>
+            <p className="text-gray-500">
+              {!activeEvent 
+                ? "Go to the Admin panel to create events for your season, or select a different season above." 
+                : "This event doesn't have any sessions yet. Click the '+ New Session' button in the top right to start evaluations."}
+            </p>
+          </div>
+          {!activeEvent && (
+            <a href="/admin/events" className="mt-4 text-indigo-600 font-semibold hover:underline">
+              Go to Admin &rarr;
+            </a>
+          )}
+        </div>
+      ) : (
+        <>
+          <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+            <div>
+              <h1 className="text-2xl font-black text-gray-900 tracking-tight flex items-center gap-2">
+                <UsersIcon className="text-indigo-600" size={28} />
+                {activeSession.name} - {availableDivisions.find(d => d.id === activeDivisionId)?.name}
+              </h1>
+              <p className="text-gray-500 text-sm mt-1">
+                {activeUser.role === 'admin' 
+                  ? "Admin Mode: You can move players and edit any team." 
+                  : `Coach Mode: You can only manage your assigned team.`}
+              </p>
             </div>
-          )}
+            
+            <div className="flex items-center gap-6">
+              {activeUser.role === 'admin' && (
+                <button 
+                  onClick={handleAddTeam}
+                  className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm"
+                >
+                  <Plus size={16} /> Add Team
+                </button>
+              )}
 
-          {/* Right Main Area: Assigned Teams */}
-          <div className={cn(
-            "flex-1 bg-white rounded-3xl border border-gray-100 shadow-sm custom-scrollbar",
-            viewMode === 'kanban' 
-              ? "flex gap-6 items-start h-full overflow-x-auto overflow-y-hidden p-6" 
-              : "h-full overflow-y-auto p-8"
-          )}>
-            {viewMode === 'table' ? (
-              <div className="max-w-4xl mx-auto">
-                {assignedTeams.map(team => (
+              <div className="w-px h-8 bg-gray-200"></div>
+
+              {/* App Mode Toggle */}
+              <div className="flex items-center bg-gray-100 p-1 rounded-xl">
+                <button 
+                  onClick={() => setIsTryoutMode(false)}
+                  className={cn(
+                    "px-4 py-2 rounded-lg text-sm font-semibold transition-all",
+                    !isTryoutMode ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                  )}
+                >
+                  Groups
+                </button>
+                <button 
+                  onClick={() => setIsTryoutMode(true)}
+                  className={cn(
+                    "px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5",
+                    isTryoutMode ? "bg-indigo-600 text-white shadow-sm" : "text-gray-500 hover:text-gray-700"
+                  )}
+                >
+                  <Settings2 size={16} /> Tryouts
+                </button>
+              </div>
+
+              <div className="w-px h-8 bg-gray-200"></div>
+
+              {/* Layout Mode Toggle */}
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => setViewMode('table')}
+                  className={cn(
+                    "p-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-semibold",
+                    viewMode === 'table' ? "bg-indigo-50 text-indigo-700" : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                  )}
+                >
+                  <List size={20} /> List
+                </button>
+                <button 
+                  onClick={() => setViewMode('kanban')}
+                  className={cn(
+                    "p-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-semibold",
+                    viewMode === 'kanban' ? "bg-indigo-50 text-indigo-700" : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                  )}
+                >
+                  <LayoutGrid size={20} /> Board
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <DndContext 
+            sensors={sensors}
+            collisionDetection={closestCorners}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
+            <div className="flex flex-col xl:flex-row gap-8 h-[calc(100vh-280px)]">
+              {/* Left Sidebar: Unassigned Pool */}
+              {unassignedTeam && (
+                <div className="w-full xl:w-[400px] flex-shrink-0 h-[500px] xl:h-full">
                   <TeamSection 
-                    key={team.id} 
-                    team={team} 
-                    players={getProcessedPlayers(hydratedPlayers, team)} 
+                    team={unassignedTeam} 
+                    players={getProcessedPlayers(hydratedPlayers, unassignedTeam)} 
                     isTryoutMode={isTryoutMode}
-                    viewMode={viewMode}
+                    viewMode="kanban"
+                    isSidebar={true}
                     onStatusChange={handleStatusChange}
                     onAttendanceChange={handleAttendanceChange}
                     onTeamNameChange={handleTeamNameChange}
                     onSortChange={handleSortChange}
                     onFilterChange={handleFilterChange}
                     onDeleteTeam={activeUser.role === 'admin' ? handleDeleteTeam : undefined}
-                    onInviteAllTeam={activeUser.role === 'admin' || activeUser.assignedTeamId === team.id ? handleInviteAllTeam : undefined}
+                    onInviteAllTeam={activeUser.role === 'admin' || activeUser.assignedTeamId === unassignedTeam.id ? handleInviteAllTeam : undefined}
                     onViewDetails={(p) => setSelectedPlayerForDetails(p)}
                     activeUserId={activeUserId}
                   />
-                ))}
-              </div>
-            ) : (
-              assignedTeams.map(team => (
-                <TeamSection 
-                  key={team.id} 
-                  team={team} 
-                  players={getProcessedPlayers(hydratedPlayers, team)} 
-                  isTryoutMode={isTryoutMode}
-                  viewMode={viewMode}
-                  onStatusChange={handleStatusChange}
-                  onAttendanceChange={handleAttendanceChange}
-                  onTeamNameChange={handleTeamNameChange}
-                  onSortChange={handleSortChange}
-                  onFilterChange={handleFilterChange}
-                  onDeleteTeam={activeUser.role === 'admin' ? handleDeleteTeam : undefined}
-                  onInviteAllTeam={activeUser.role === 'admin' || activeUser.assignedTeamId === team.id ? handleInviteAllTeam : undefined}
-                  onViewDetails={(p) => setSelectedPlayerForDetails(p)}
-                  activeUserId={activeUserId}
-                />
-              ))
-            )}
-          </div>
-        </div>
+                </div>
+              )}
 
-        <DragOverlay>
-          {activePlayer ? (
-            <PlayerCard 
-              player={activePlayer} 
-              isTryoutMode={isTryoutMode} 
-              viewMode={activePlayer.teamId.includes('unassigned') ? 'kanban' : viewMode} 
-            />
-          ) : null}
-        </DragOverlay>
-      </DndContext>
+              {/* Right Main Area: Assigned Teams */}
+              <div className={cn(
+                "flex-1 bg-white rounded-3xl border border-gray-100 shadow-sm custom-scrollbar",
+                viewMode === 'kanban' 
+                  ? "flex gap-6 items-start h-full overflow-x-auto overflow-y-hidden p-6" 
+                  : "h-full overflow-y-auto p-8"
+              )}>
+                {viewMode === 'table' ? (
+                  <div className="max-w-4xl mx-auto">
+                    {assignedTeams.map(team => (
+                      <TeamSection 
+                        key={team.id} 
+                        team={team} 
+                        players={getProcessedPlayers(hydratedPlayers, team)} 
+                        isTryoutMode={isTryoutMode}
+                        viewMode={viewMode}
+                        onStatusChange={handleStatusChange}
+                        onAttendanceChange={handleAttendanceChange}
+                        onTeamNameChange={handleTeamNameChange}
+                        onSortChange={handleSortChange}
+                        onFilterChange={handleFilterChange}
+                        onDeleteTeam={activeUser.role === 'admin' ? handleDeleteTeam : undefined}
+                        onInviteAllTeam={activeUser.role === 'admin' || activeUser.assignedTeamId === team.id ? handleInviteAllTeam : undefined}
+                        onViewDetails={(p) => setSelectedPlayerForDetails(p)}
+                        activeUserId={activeUserId}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  assignedTeams.map(team => (
+                    <TeamSection 
+                      key={team.id} 
+                      team={team} 
+                      players={getProcessedPlayers(hydratedPlayers, team)} 
+                      isTryoutMode={isTryoutMode}
+                      viewMode={viewMode}
+                      onStatusChange={handleStatusChange}
+                      onAttendanceChange={handleAttendanceChange}
+                      onTeamNameChange={handleTeamNameChange}
+                      onSortChange={handleSortChange}
+                      onFilterChange={handleFilterChange}
+                      onDeleteTeam={activeUser.role === 'admin' ? handleDeleteTeam : undefined}
+                      onInviteAllTeam={activeUser.role === 'admin' || activeUser.assignedTeamId === team.id ? handleInviteAllTeam : undefined}
+                      onViewDetails={(p) => setSelectedPlayerForDetails(p)}
+                      activeUserId={activeUserId}
+                    />
+                  ))
+                )}
+              </div>
+            </div>
+
+            <DragOverlay>
+              {activePlayer ? (
+                <PlayerCard 
+                  player={activePlayer} 
+                  isTryoutMode={isTryoutMode} 
+                  viewMode={activePlayer.teamId.includes('unassigned') ? 'kanban' : viewMode} 
+                />
+              ) : null}
+            </DragOverlay>
+          </DndContext>
+        </>
+      )}
 
       {/* Create Session Modal */}
-      {isCreateSessionModalOpen && (
+      {isCreateSessionModalOpen && activeEvent && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
             <h2 className="text-xl font-bold text-gray-900 mb-4">Create New Session for {activeEvent.name}</h2>
@@ -777,7 +800,8 @@ export function PlayerBoard() {
                 className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
-                    handleNotesChange(selectedPlayerForDetails.id, e.currentTarget.value);
+                    const text = e.currentTarget.value;
+                    handleNotesChange(selectedPlayerForDetails.id, text);
                     e.currentTarget.value = '';
                     // Local state update for responsiveness
                     const updatedPlayer = {
@@ -789,7 +813,7 @@ export function PlayerBoard() {
                           coachId: activeUserId,
                           eventId: activeEventId,
                           sessionId: activeSessionId,
-                          text: e.currentTarget.value,
+                          text: text,
                           timestamp: Date.now()
                         }
                       ]
@@ -798,38 +822,10 @@ export function PlayerBoard() {
                   }
                 }}
               />
-              <button 
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-semibold transition-colors"
-                onClick={(e) => {
-                  const input = e.currentTarget.previousElementSibling as HTMLInputElement;
-                  if (input.value.trim()) {
-                    handleNotesChange(selectedPlayerForDetails.id, input.value);
-                    const updatedPlayer = {
-                      ...selectedPlayerForDetails,
-                      notes: [
-                        ...selectedPlayerForDetails.notes,
-                        {
-                          id: `note-${Date.now()}`,
-                          coachId: activeUserId,
-                          eventId: activeEventId,
-                          sessionId: activeSessionId,
-                          text: input.value,
-                          timestamp: Date.now()
-                        }
-                      ]
-                    };
-                    setSelectedPlayerForDetails(updatedPlayer);
-                    input.value = '';
-                  }
-                }}
-              >
-                Add
-              </button>
             </div>
           </div>
         </div>
       )}
-
     </div>
   );
 }
