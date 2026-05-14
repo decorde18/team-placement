@@ -126,7 +126,7 @@ export function PlayerBoard() {
           lastSyncedDataRef.current = JSON.stringify(data.sessions.map(s => ({
             id: s.id,
             fields: s.fields.map(f => ({ id: f.id, name: f.name })),
-            players: s.sessionPlayers.map(p => ({ id: p.id, fieldId: p.fieldId, status: p.status, att: p.attendance, noteCount: p.notes.length }))
+            players: s.sessionPlayers.map(p => ({ id: p.id, fieldId: p.fieldId, att: p.attendance, noteCount: p.notes.length }))
           })));
         }
         setIsLoading(false);
@@ -148,7 +148,7 @@ export function PlayerBoard() {
     const currentDataFingerprint = JSON.stringify(appData.sessions.map(s => ({
       id: s.id,
       fields: s.fields.map(f => ({ id: f.id, name: f.name })),
-      players: s.sessionPlayers.map(p => ({ id: p.id, fieldId: p.fieldId, status: p.status, att: p.attendance, noteCount: p.notes.length }))
+      players: s.sessionPlayers.map(p => ({ id: p.id, fieldId: p.fieldId, att: p.attendance, noteCount: p.notes.length }))
     })));
 
     // If the important data hasn't changed, DO NOT sync (silences sort/filter noise)
@@ -465,7 +465,7 @@ export function PlayerBoard() {
         );
         const divPlayers = appData.globalPlayers.filter(gp => gp.divisionId === divId);
         divPlayers.forEach(gp => {
-          clonedSessionPlayers.push({ id: gp.id, status: 'none', attendance: 'present', notes: [], fieldId: `unassigned-${divId}` });
+          clonedSessionPlayers.push({ id: gp.id, attendance: 'present', notes: [], fieldId: `unassigned-${divId}` });
         });
       });
     }
@@ -796,6 +796,7 @@ export function PlayerBoard() {
                           coachId: activeUserId,
                           eventId: activeEventId,
                           sessionId: activeSessionId,
+                          playerId: selectedPlayerForDetails.id,
                           text: text,
                           timestamp: Date.now()
                         }
