@@ -273,9 +273,9 @@ export default function FinalSelectionPage() {
     return getHydratedPlayers(divPlayers, activeSession.sessionPlayers);
   }, [appData, activeSession, activeDivisionId]);
 
-  // DB Sync
   const calculateFingerprint = (data: AppData) => {
-    return JSON.stringify(data.globalPlayers.map(p => ({ id: p.id, t: p.teamId, s: p.status })));
+    const sessionPlayersMap = new globalThis.Map(activeSession?.sessionPlayers.map(sp => [sp.id, sp.fieldId]) || []);
+    return JSON.stringify(data.globalPlayers.map(p => ({ id: p.id, t: p.teamId, s: p.status, f: sessionPlayersMap.get(p.id) })));
   };
 
   const lastSyncedDataRef = React.useRef<string>('');
@@ -329,6 +329,7 @@ export default function FinalSelectionPage() {
 
     // If targetId is a team ID or a player within a team
     let teamId: string | undefined = targetId;
+    let fieldId: string | undefined = undefined;
     
     if (targetId === 'unassigned-pool') {
       teamId = 'unassigned';
@@ -336,17 +337,32 @@ export default function FinalSelectionPage() {
       const isTeam = activeDivisionTeams.some(t => t.id === targetId);
       if (!isTeam) {
         const targetPlayer = finalPlayers.find(p => p.id === targetId);
-        if (targetPlayer) teamId = targetPlayer.teamId;
+        if (targetPlayer) {
+          teamId = targetPlayer.teamId;
+          fieldId = targetPlayer.fieldId;
+        }
       }
     }
 
     setAppData(prev => {
       if (!prev) return prev;
+      
+      let newSessions = prev.sessions;
+      if (fieldId) {
+        newSessions = prev.sessions.map(s => s.id === activeSessionId ? {
+          ...s,
+          sessionPlayers: s.sessionPlayers.map(sp => 
+            sp.id === playerId ? { ...sp, fieldId: fieldId! } : sp
+          )
+        } : s);
+      }
+
       return {
         ...prev,
         globalPlayers: prev.globalPlayers.map(gp => 
           gp.id === playerId ? { ...gp, teamId: teamId } : gp
-        )
+        ),
+        sessions: newSessions
       };
     });
   };

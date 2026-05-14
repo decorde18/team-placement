@@ -43,7 +43,7 @@ export async function fetchAppData(): Promise<AppData> {
     }));
 
     const [dbGlobalPlayers]: any = await connection.query(`
-      SELECT p.id, sp.season_age_group_id, p.first_name, p.last_name, sp.tryout_number, sp.position, sp.rating, sp.player_status 
+      SELECT p.id, sp.season_age_group_id, p.first_name, p.last_name, sp.tryout_number, sp.position, sp.rating, sp.player_status, sp.team_id 
       FROM players p 
       JOIN season_players sp ON p.id = sp.player_id
       WHERE p.club_id = ?
@@ -55,7 +55,8 @@ export async function fetchAppData(): Promise<AppData> {
       tryoutNumber: gp.tryout_number || '',
       position: gp.position || '',
       rating: gp.rating || 0,
-      status: (gp.player_status || 'none') as any
+      status: (gp.player_status || 'none') as any,
+      teamId: gp.team_id ? String(gp.team_id) : undefined
     }));
 
     const [dbEvents]: any = await connection.query(`
@@ -235,14 +236,14 @@ export async function syncAppData(appData: AppData) {
             if (!f.id.includes('unassigned')) {
                 if (f.id.startsWith('field-') || f.id.startsWith('team-')) {
                     const [res]: any = await connection.query(
-                        `INSERT INTO session_fields (session_id, name) VALUES (?, ?)`,
-                        [sessionId, f.name]
+                        `INSERT INTO session_fields (session_id, name, sort_by, sort_direction, filter_by) VALUES (?, ?, ?, ?, ?)`,
+                        [sessionId, f.name, f.sortBy || 'name', f.sortDirection || 'asc', f.filterBy || 'all']
                     );
                     idMappings[f.id] = String(res.insertId);
                 } else {
                     await connection.query(
-                        `UPDATE session_fields SET name = ? WHERE id = ?`,
-                        [f.name, parseInt(f.id)]
+                        `UPDATE session_fields SET name = ?, sort_by = ?, sort_direction = ?, filter_by = ? WHERE id = ?`,
+                        [f.name, f.sortBy || 'name', f.sortDirection || 'asc', f.filterBy || 'all', parseInt(f.id)]
                     );
                 }
             }
@@ -284,12 +285,13 @@ export async function syncAppData(appData: AppData) {
                 );
             }
 
-            // Sync status to season_players (Selection Status)
+            // Sync status to season_players (Selection Status and Team)
             const globalPlayer = appData.globalPlayers.find(gp => gp.id === sp.id);
             if (globalPlayer) {
+              const teamIdToSave = globalPlayer.teamId && globalPlayer.teamId !== 'unassigned' ? parseInt(globalPlayer.teamId) : null;
               await connection.query(
-                `UPDATE season_players SET player_status = ? WHERE player_id = ?`,
-                [globalPlayer.status, parseInt(sp.id)]
+                `UPDATE season_players SET player_status = ?, team_id = ? WHERE player_id = ?`,
+                [globalPlayer.status, teamIdToSave, parseInt(sp.id)]
               );
             }
 
